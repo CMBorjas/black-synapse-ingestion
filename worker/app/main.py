@@ -1,8 +1,8 @@
 """
-Black Synapse Data Ingestion Worker
+AtlasAI Worker
 
-FastAPI application for processing and embedding data from various sources.
-Handles ingestion, deduplication, chunking, and vector storage.
+FastAPI application for processing and embedding data from various sources for the SPOT robot.
+Handles ingestion, deduplication, chunking, and vector storage to power the robot's AI capabilities.
 """
 
 import os
@@ -25,8 +25,8 @@ logger = logging.getLogger(__name__)
 
 # Initialize FastAPI app
 app = FastAPI(
-    title="Black Synapse Data Ingestion",
-    description="ETL pipeline for processing and embedding data from various sources",
+    title="AtlasAI Worker",
+    description="ETL pipeline for processing and embedding data from various sources for the SPOT robot's AI system",
     version="1.0.0"
 )
 
@@ -73,7 +73,7 @@ class SyncResponse(BaseModel):
 @app.get("/")
 async def root():
     """Health check endpoint."""
-    return {"message": "Black Synapse Data Ingestion Worker", "status": "healthy"}
+    return {"message": "AtlasAI Worker - SPOT Robot AI System", "status": "healthy"}
 
 @app.get("/health")
 async def health_check():

@@ -1,26 +1,6 @@
 {
-  "name": "BlackSynapse",
+  "name": "AtlasAI",
   "nodes": [
-    {
-      "parameters": {
-        "model": "llama3.2:1b",
-        "options": {}
-      },
-      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
-      "typeVersion": 1,
-      "position": [
-        672,
-        512
-      ],
-      "id": "d9a95d34-5acf-4cfa-8436-e5327ef6373c",
-      "name": "Ollama Chat Model",
-      "credentials": {
-        "ollamaApi": {
-          "id": "E0eX7omiBZe8dM8s",
-          "name": "Ollama account"
-        }
-      }
-    },
     {
       "parameters": {
         "content": "## ASR \nGet Audio -> Call ASR -> RAG Pipeline",
@@ -28,11 +8,11 @@
       },
       "type": "n8n-nodes-base.stickyNote",
       "position": [
-        400,
+        384,
         0
       ],
       "typeVersion": 1,
-      "id": "77261bb1-ed04-457a-bb1d-894f2f3999ce",
+      "id": "9659f580-4bc9-4c4d-aff7-1b769e6f04e0",
       "name": "Sticky Note"
     },
     {
@@ -45,7 +25,7 @@
         112
       ],
       "typeVersion": 1,
-      "id": "f48f4699-1926-41b7-a1fa-41c69c39b01d",
+      "id": "aa95887b-c933-4360-97fd-c1c078b00855",
       "name": "Sticky Note1"
     },
     {
@@ -58,12 +38,12 @@
         112
       ],
       "typeVersion": 1,
-      "id": "9e8a87d5-3a2c-4728-8994-8d7f65848821",
+      "id": "f65a88b2-b3be-40c4-afac-70c773d2790c",
       "name": "Sticky Note2"
     },
     {
       "parameters": {
-        "content": "## Trigger Node\nDetects a new recording from our Porcupine API and POSTs the file into Whisper.cpp",
+        "content": "## Trigger Node\nDetects a new recording from open wake word POSTs the file into Whisper.",
         "width": 214
       },
       "type": "n8n-nodes-base.stickyNote",
@@ -72,7 +52,7 @@
         0
       ],
       "typeVersion": 1,
-      "id": "5f6b6ad2-9fe3-4d91-95c7-9bc5c7c35d81",
+      "id": "6a123a89-34a3-40a4-8533-cb70251d9027",
       "name": "Sticky Note3"
     },
     {
@@ -99,15 +79,15 @@
         1248,
         304
       ],
-      "id": "40a45109-28b4-4d5c-80ba-954681dd77a6",
+      "id": "ef5b8057-ba15-4bd5-b0e9-6a95c43b45a0",
       "name": "Speaker"
     },
     {
       "parameters": {
         "promptType": "define",
-        "text": "={{ $json.text }}",
+        "text": "={{ $json.text || $json.chatInput }}",
         "options": {
-          "systemMessage": "You are Jarvis, an intelligent, articulate voice assistant designed to assist with tasks, answer questions, and hold natural conversations.\n\nYou speak with clarity, confidence, and purpose—concise when needed, detailed when appropriate. You adapt to the user's tone, but maintain a respectful and calm demeanor. You can make proactive suggestions when helpful.\n\nYou are always informative, never condescending. Avoid filler words. Use correct grammar.\n\nRespond as if you're speaking aloud: natural, structured, and engaging—but not overly verbose.\n\nIf you're uncertain, explain your reasoning clearly and suggest possible next steps.\n\nConstraint/Must: Make sure your output is only has alphabets, no other characters (No newline \\n)"
+          "systemMessage": "You are a \"Atlas\" CU Denver tour guide assistant.\n\nTool usage policy (MANDATORY):\n- For every user question that asks for factual info about CU Denver (locations, services, admissions, programs, policies, hours, parking, deadlines, contacts, events), you MUST call the tool `cu_denver_search` before answering.\n- If retrieval returns no relevant results, say: \"I couldn't find that in the CU Denver knowledge base\" and ask a clarifying question.\n- Make sure to shorten responses \n- make them listenable not readable. Example, don't read punctuation.\n- Make sure that the query key for the vector database is \"input\""
         }
       },
       "type": "@n8n/n8n-nodes-langchain.agent",
@@ -116,7 +96,7 @@
         672,
         304
       ],
-      "id": "95c54230-8314-4c2e-86f0-959d4ed70a68",
+      "id": "cc56ca52-2621-4352-8df7-7280aadaef29",
       "name": "LLM - Ollama 3",
       "alwaysOutputData": false
     },
@@ -127,38 +107,12 @@
       "type": "@n8n/n8n-nodes-langchain.chatTrigger",
       "typeVersion": 1.3,
       "position": [
-        448,
-        400
+        144,
+        512
       ],
-      "id": "cb221684-09c6-4046-9b8b-864bc486f4b8",
+      "id": "1d8154db-ffd1-487c-a69a-f117518ea3db",
       "name": "When chat message received",
       "webhookId": "cb6a87a3-ce5e-4c22-97fc-f400ae98092f"
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "http://host.docker.internal:8880/v1/audio/speech",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={\n        \"model\": \"kokoro\",\n        \"input\": \"{{ $json.output }}\",\n        \"voice\": \"af_heart\",\n        \"response_format\": \"wav\",\n        \"speed\": 1.2,\n        \"stream\": false\n      }",
-        "options": {
-          "response": {
-            "response": {
-              "responseFormat": "file"
-            }
-          }
-        }
-      },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.3,
-      "position": [
-        1024,
-        304
-      ],
-      "id": "584cb754-181f-48cf-aa86-722fecf3cd3f",
-      "name": "KokoroTTS",
-      "alwaysOutputData": true,
-      "executeOnce": false
     },
     {
       "parameters": {
@@ -179,7 +133,7 @@
         0,
         208
       ],
-      "id": "23eb9e9c-d7e5-48d4-8157-5675e691d4aa",
+      "id": "121f569c-948e-4806-9d6b-d8b7d8688e4d",
       "name": "Local File Trigger",
       "retryOnFail": false,
       "alwaysOutputData": false,
@@ -191,12 +145,26 @@
       },
       "type": "n8n-nodes-base.stickyNote",
       "position": [
-        1248,
-        112
+        1264,
+        96
       ],
       "typeVersion": 1,
-      "id": "5bf38d27-124b-4bf5-901b-0d37e1ef9d9c",
+      "id": "9b7724ed-527f-4014-aa4e-d807340ed9d1",
       "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "fileSelector": "={{ $json.path }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        224,
+        208
+      ],
+      "id": "3331b17c-d95d-46e3-b24f-401ecda13082",
+      "name": "Read/Write Files from Disk"
     },
     {
       "parameters": {
@@ -222,65 +190,114 @@
         448,
         208
       ],
-      "id": "f95a9bca-6faa-4349-a4a3-179b4d7aad09",
-      "name": "ASR: Whisper.cpp",
+      "id": "789aca45-a6b5-46c6-96a3-fc0d31b2c9f4",
+      "name": "ASR: Whisper",
       "executeOnce": false
     },
     {
       "parameters": {
-        "fileSelector": "={{ $json.path }}",
-        "options": {}
+        "method": "POST",
+        "url": "http://host.docker.internal:8880/v1/audio/speech",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n        \"model\": \"kokoro\",\n        \"input\": \"{{ $json.output.replace(/\\r?\\n|\\n/g, '').replace(/\\\\n/g, '') }}\",\n        \"voice\": \"af_heart\",\n        \"response_format\": \"wav\",\n        \"speed\": 1.2,\n        \"stream\": false\n      }",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
       },
-      "type": "n8n-nodes-base.readWriteFile",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        1024,
+        304
+      ],
+      "id": "d6e6fd12-2687-406b-8329-37b95a08a926",
+      "name": "TTS: Kokoro",
+      "alwaysOutputData": true,
+      "executeOnce": false
+    },
+    {
+      "parameters": {
+        "model": "embeddinggemma:latest"
+      },
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOllama",
       "typeVersion": 1,
       "position": [
-        224,
-        208
+        816,
+        880
       ],
-      "id": "716ddbb6-1b24-4296-b033-9d387cefce53",
-      "name": "Read/Write Files from Disk"
+      "id": "769c894f-dfdb-4e0e-b21a-be8fa0b9ff12",
+      "name": "Embeddings Ollama",
+      "credentials": {
+        "ollamaApi": {
+          "id": "os3dc9gZDOKRh5fG",
+          "name": "Ollama account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "PetrosStav/gemma3-tools:4b",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        512,
+        672
+      ],
+      "id": "f17f1a0b-c83e-431e-a76d-281f1c9139d2",
+      "name": "Ollama Chat Model",
+      "credentials": {
+        "ollamaApi": {
+          "id": "os3dc9gZDOKRh5fG",
+          "name": "Ollama account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "retrieve-as-tool",
+        "toolDescription": "Work with cu_denver_search to retrieve CU Denver relevant data",
+        "qdrantCollection": {
+          "__rl": true,
+          "value": "cu_denver_database",
+          "mode": "list",
+          "cachedResultName": "cu_denver_database"
+        },
+        "topK": 8,
+        "includeDocumentMetadata": false,
+        "options": {
+          "contentPayloadKey": "text"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreQdrant",
+      "typeVersion": 1.3,
+      "position": [
+        816,
+        704
+      ],
+      "id": "67e11a05-f334-445a-8aa1-0a1a9b2d63bd",
+      "name": "cu_denver_search",
+      "credentials": {
+        "qdrantApi": {
+          "id": "CXmycrYaqDrVYSwz",
+          "name": "QdrantApi account"
+        }
+      }
     }
   ],
   "pinData": {},
   "connections": {
-    "Ollama Chat Model": {
-      "ai_languageModel": [
-        [
-          {
-            "node": "LLM - Ollama 3",
-            "type": "ai_languageModel",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "LLM - Ollama 3": {
-      "main": [
-        [
-          {
-            "node": "KokoroTTS",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "When chat message received": {
       "main": [
         [
           {
             "node": "LLM - Ollama 3",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "KokoroTTS": {
-      "main": [
-        [
-          {
-            "node": "Speaker",
             "type": "main",
             "index": 0
           }
@@ -298,7 +315,18 @@
         ]
       ]
     },
-    "ASR: Whisper.cpp": {
+    "Read/Write Files from Disk": {
+      "main": [
+        [
+          {
+            "node": "ASR: Whisper",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ASR: Whisper": {
       "main": [
         [
           {
@@ -309,11 +337,55 @@
         ]
       ]
     },
-    "Read/Write Files from Disk": {
+    "TTS: Kokoro": {
       "main": [
         [
           {
-            "node": "ASR: Whisper.cpp",
+            "node": "Speaker",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings Ollama": {
+      "ai_embedding": [
+        [
+          {
+            "node": "cu_denver_search",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "LLM - Ollama 3",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "cu_denver_search": {
+      "ai_tool": [
+        [
+          {
+            "node": "LLM - Ollama 3",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM - Ollama 3": {
+      "main": [
+        [
+          {
+            "node": "TTS: Kokoro",
             "type": "main",
             "index": 0
           }
@@ -325,11 +397,11 @@
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "58455760-c3b4-4925-99cd-213c4799b94f",
+  "versionId": "84f9f3d6-e71d-4835-8de1-ca408e283e5a",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "cf62c18d1d7d43f57771f2639fa7581d7f4995b1fc54b37462680c04da0cf259"
   },
-  "id": "P6NWo0q9Ovxl2Qqf",
+  "id": "FkUOUdG6wR4wAYWl",
   "tags": []
 }

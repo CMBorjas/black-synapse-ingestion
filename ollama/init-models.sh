@@ -11,7 +11,7 @@ until OLLAMA_HOST=$OLLAMA_HOST ollama list > /dev/null 2>&1; do
 done
 
 echo "Ollama is ready! Pulling gemma3 model..."
-OLLAMA_HOST=$OLLAMA_HOST ollama pull gemma3
+OLLAMA_HOST=$OLLAMA_HOST ollama pull qwen2.5:7b
 
 echo "Model gemma3 has been pulled successfully!"
 

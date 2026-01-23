@@ -1,7 +1,7 @@
 """
-Black Synapse Data Ingestion Pipeline
+AtlasAI Ingestion Pipeline
 
-Core pipeline for processing documents through the ingestion workflow:
+Core pipeline for processing documents through the ingestion workflow for the SPOT robot:
 - Deduplication via content hashing
 - Text chunking
 - Embedding generation
@@ -41,7 +41,7 @@ class IngestionPipeline:
         self.tokenizer = tiktoken.get_encoding("cl100k_base")
         
         # Collection name for Qdrant
-        self.collection_name = "black_synapse_documents"
+        self.collection_name = "atlasai_documents"
         
         # Initialize collections and database
         asyncio.create_task(self._initialize())

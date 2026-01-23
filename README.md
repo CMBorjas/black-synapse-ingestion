@@ -1,6 +1,6 @@
-# Black Synapse Data Ingestion
+# AtlasAI
 
-A comprehensive data ingestion system for **Black Synapse (Embodied Intelligence Engine)** that processes, normalizes, and embeds data from various sources into a unified vector database for RAG (Retrieval-Augmented Generation) applications.
+AtlasAI is the artificial intelligence system for the **SPOT robot** from Boston Dynamics. This comprehensive data ingestion and processing system normalizes and embeds data from various sources into a unified vector database, enabling intelligent retrieval-augmented generation (RAG) capabilities for the robot's AI brain.
 
 ## 🚀 Features
 
@@ -9,7 +9,7 @@ A comprehensive data ingestion system for **Black Synapse (Embodied Intelligence
 - **Intelligent Chunking**: Smart text segmentation with configurable overlap
 - **Vector Embeddings**: Generate embeddings using OpenAI's text-embedding-3-small
 - **Deduplication**: SHA-256 based content hashing to prevent duplicate processing
-- **Workflow Orchestration**: n8n-powered ETL workflows with webhook and scheduled triggers
+- **Workflow Orchestration**: n8n-powered ETL workflows with webhook and scheduled triggers for seamless automation
 - **Scalable Architecture**: Docker Compose stack with PostgreSQL and Qdrant
 - **Comprehensive Testing**: Unit tests for all core functionality
 
@@ -54,7 +54,7 @@ A comprehensive data ingestion system for **Black Synapse (Embodied Intelligence
 
 ```bash
 git clone <repository-url>
-cd black-synapse-ingestion
+cd AtlasAI
 ```
 
 ### 2. Environment Configuration
@@ -70,7 +70,7 @@ nano .env
 Required environment variables:
 ```env
 OPENAI_API_KEY=your_openai_api_key_here
-POSTGRES_URL=postgresql://postgres:password@localhost:5432/black_synapse
+POSTGRES_URL=postgresql://postgres:password@localhost:5432/atlasai
 QDRANT_URL=http://localhost:6333
 ```
 
@@ -152,7 +152,7 @@ pip install -r requirements.txt
 
 # Set environment variables
 export OPENAI_API_KEY=your_key_here
-export POSTGRES_URL=postgresql://postgres:password@localhost:5432/black_synapse
+export POSTGRES_URL=postgresql://postgres:password@localhost:5432/atlasai
 export QDRANT_URL=http://localhost:6333
 
 # Run the worker
@@ -291,7 +291,7 @@ Set production environment variables:
 
 ```env
 OPENAI_API_KEY=your_production_key
-POSTGRES_URL=postgresql://user:password@db-host:5432/black_synapse
+POSTGRES_URL=postgresql://user:password@db-host:5432/atlasai
 QDRANT_URL=http://qdrant-host:6333
 LOG_LEVEL=WARNING
 ```

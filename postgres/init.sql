@@ -1,11 +1,11 @@
--- Black Synapse Data Ingestion Database Schema
--- PostgreSQL initialization script
+-- AtlasAI Database Schema
+-- PostgreSQL initialization script for SPOT robot AI system
 
 -- Create database if it doesn't exist (this will be handled by POSTGRES_DB env var)
--- CREATE DATABASE black_synapse;
+-- CREATE DATABASE atlasai;
 
 -- Connect to the database
-\c black_synapse;
+\c atlasai;
 
 -- Create documents table for tracking ingested documents
 CREATE TABLE IF NOT EXISTS documents (

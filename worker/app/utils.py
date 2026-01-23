@@ -1,7 +1,7 @@
 """
-Black Synapse Data Ingestion Utilities
+AtlasAI Utilities
 
-Utility functions for text processing, embedding generation, and logging.
+Utility functions for text processing, embedding generation, and logging for the SPOT robot's AI system.
 """
 
 import logging

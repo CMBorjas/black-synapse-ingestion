@@ -1,8 +1,15 @@
 services:
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    command: redis-server --save "" --appendonly no
+    ports:
+      - "6379:6379"   
+
   n8n:
     image: n8nio/n8n:latest
     ports:
-      - "5678:5678"
+      - "5678:5678"   
     environment:
       - N8N_ENCRYPTION_KEY=CHANGE_ME_LONG_RANDOM
       - N8N_DIAGNOSTICS_ENABLED=false
@@ -12,12 +19,42 @@ services:
       - N8N_PROTOCOL=http
       - N8N_PORT=5678
       - WEBHOOK_URL=http://127.0.0.1:5678/
+
+      - N8N_EXECUTIONS_MODE=queue
+      - QUEUE_BULL_REDIS_HOST=redis
+      - QUEUE_BULL_REDIS_PORT=6379
+
+      - EXECUTIONS_TIMEOUT=180
+      - EXECUTIONS_TIMEOUT_MAX=600
+
     volumes:
       - n8n_data:/home/node/.n8n
       - "./ASR:/data/asr"
     depends_on:
+      - redis
       - qdrant
       - ollama
+
+  n8n-worker:
+    image: n8nio/n8n:latest
+    command: worker
+    restart: unless-stopped
+    environment:
+      - N8N_ENCRYPTION_KEY=CHANGE_ME_LONG_RANDOM
+
+      - N8N_EXECUTIONS_MODE=queue
+      - QUEUE_BULL_REDIS_HOST=redis
+      - QUEUE_BULL_REDIS_PORT=6379
+
+      - N8N_WORKER_CONCURRENCY=1
+
+      - EXECUTIONS_TIMEOUT=180
+      - EXECUTIONS_TIMEOUT_MAX=600
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - "./ASR:/data/asr"
+    depends_on:
+      - redis
 
   qdrant:
     image: qdrant/qdrant:latest
@@ -39,7 +76,6 @@ services:
       retries: 5
       start_period: 10s
 
-  # Ollama model initialization - pulls gemma3 model automatically
   ollama-init:
     image: ollama/ollama:latest
     volumes:
@@ -53,11 +89,10 @@ services:
         condition: service_healthy
     restart: "no"
 
-  # ASR Service (Whisper transcription)
   asr:
     build:
-      context: ./ASR
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./ASR/Dockerfile
     ports:
       - "8002:8002"
     volumes:
@@ -65,75 +100,19 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
 
-  # Porcupine Wake Word Detection
-  # Note: Audio device access requires Linux or WSL2 on Windows
-  # For Windows, you may need to configure PulseAudio or use WSL2
-  # porcupine:
-  #   build:
-  #     context: ./ASR
-  #     dockerfile: Dockerfile.porcupine
-  #   volumes:
-  #     - asr_audio:/app/received_audio
-  #     - /dev/snd:/dev/snd  # Audio device access (Linux/WSL2)
-  #   environment:
-  #     - PYTHONUNBUFFERED=1
-  #     - PICOVOICE_ACCESS_KEY=${PICOVOICE_ACCESS_KEY:-}
-  #   devices:
-  #     - /dev/snd:/dev/snd  # Audio device access
-  #   privileged: true  # Required for audio device access
-
-  # Kokoro TTS Service (Text-to-Speech generation)
   kokoro-tts:
-    image: ghcr.io/remsky/kokoro-fastapi-cpu:latest
+    image: ghcr.io/remsky/kokoro-fastapi-gpu:latest
     ports:
       - "8880:8880"
+    restart: unless-stopped
     environment:
       - PYTHONUNBUFFERED=1
-    restart: unless-stopped
-    # Optional: Add GPU support if you have NVIDIA GPU
-    # Uncomment the following lines if you want GPU support:
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:    #           count: 1
-    #           capabilities: [gpu]
-
-  # TTS Service (Kokoro speaker API - audio playback)
-  # Multi-platform support: Works on Linux, macOS (Docker Desktop), and Windows (WSL2)
-  # Note: Audio playback in Docker works best on Linux/WSL2. On Windows/macOS,
-  # pygame will use available audio systems (may require additional host configuration)
-  tts:
-    build:
-      context: ./TTS/kokoro
-      dockerfile: Dockerfile.speaker
-      # Multi-platform build support
-      platforms:
-        - linux/amd64
-        - linux/arm64
-    ports:
-      - "8001:8001"
-    volumes:
-      - tts_audio:/app/received_audio
-      - /dev/snd:/dev/snd
-    environment:
-      - PYTHONUNBUFFERED=1
-      - DISPLAY=${DISPLAY:-:0}  # For X11 forwarding if needed (Linux)
-      - ALLOW_DUMMY_AUDIO=${ALLOW_DUMMY_AUDIO:-0}
-    devices:
-      - /dev/snd:/dev/snd
-    group_add:
-      - audio
-    privileged: true
-    restart: unless-stopped
-    
-
-    #         - driver: nvidia
-
-
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    runtime: nvidia
 
 volumes:
   n8n_data:
   qdrant_data:
   ollama_data:
   asr_audio:
-  tts_audio:

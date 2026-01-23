@@ -287,3 +287,5 @@ cache/
 # mp3/waav
 *.mp3
 *.wav
+
+qdrant/cudenver_crawl/
