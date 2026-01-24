@@ -97,7 +97,19 @@ AI data ingestion system for the Desky robot. Ingests data from multiple sources
 5. Wake word:
    - You can modify the wake word by using pre-trained models or training your own models using: https://github.com/dscripka/openWakeWord/blob/main/notebooks/automatic_model_training.ipynb
 
-5. Qdrant:
+5. Ollama:
+   - Currenly, the model for Ollama is installed automatically when you start the docker container. You can find the file in ollama/init.models.sh
+   - If you want to modify the model that starts with docker change it in the file here:
+   ```
+   OLLAMA_HOST=$OLLAMA_HOST ollama pull qwen2.5:7b
+   ```
+   - You can also install another ollama model locally directly by running this on your terminal or the docker container terminal:
+    ```
+   ollama run gemma3
+    ```
+   Note: Make sure to monitor storage as installing a lot of models will fill up your empty storage pretty fast and silently.
+
+6. Qdrant:
    - To add a database in Qdrant, you can upload an existing snapshot.
 
 ## Requirements
