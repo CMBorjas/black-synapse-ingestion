@@ -48,7 +48,7 @@ def record_after_wake():
     
     try:
         stream.start()
-        print("[Listening for wake word 'hey spot']")
+        print("[Listening for wake word 'atlas']")
         
         last_detection_time = 0.0  # Track when last wake word was detected
         cooldown_frames_to_flush = int(COOLDOWN_SECONDS * SAMPLE_RATE / OWW_FRAME_LENGTH)  # Frames to flush during cooldown
