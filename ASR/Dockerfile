@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install Python dependencies
-COPY requirements /tmp/requirements
+COPY requirements.txt /tmp/requirements
 RUN pip install --no-cache-dir -r /tmp/requirements
 
 # Copy the ASR server code (path relative to root context)
