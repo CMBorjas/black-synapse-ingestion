@@ -11,7 +11,12 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
-RUN pip install --no-cache-dir -r ../requirements
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Pre-download tiktoken encoding
+RUN python -c "import tiktoken; tiktoken.get_encoding('cl100k_base')"
 
 # Copy application code
 COPY app/ ./app/

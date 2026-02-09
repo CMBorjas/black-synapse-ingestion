@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """
+
 Combine individual crawl JSON files into a single array format
+i.e.: 
+[].json + [].json = [][].json
 expected by qdrant_ingestion.py
 """
 
