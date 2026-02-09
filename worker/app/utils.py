@@ -22,7 +22,8 @@ def setup_logging():
         handlers=[
             logging.StreamHandler(),
             logging.FileHandler('ingestion.log')
-        ]
+        ],
+        force=True
     )
 
 def chunk_text(text: str, tokenizer: tiktoken.Encoding, 

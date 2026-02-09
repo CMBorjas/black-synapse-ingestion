@@ -79,8 +79,8 @@ AI data ingestion system for the Desky robot. Ingests data from multiple sources
    ┌─────────────────────┐   │
    │      Speaker        │   │
    └─────────────────────┘   │
-                              │
-                    ┌─────────┘
+                             │
+                    ┌────────┘
                     │
                     ▼
          ┌──────────────────┐

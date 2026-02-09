@@ -15,6 +15,9 @@ from dotenv import load_dotenv
 
 from .pipeline import IngestionPipeline
 from .utils import setup_logging
+from .scraper import scrape_url
+import uuid
+from datetime import datetime
 
 # Load environment variables
 load_dotenv()
@@ -53,6 +56,13 @@ class DocumentPayload(BaseModel):
     author: str = Field(..., description="Document author")
     created_at: str = Field(..., description="Creation timestamp (ISO format)")
     updated_at: str = Field(..., description="Last update timestamp (ISO format)")
+
+class UserIngestRequest(BaseModel):
+    """Schema for user profile ingestion request."""
+    name: str = Field(..., description="Name of the user")
+    url: str = Field(None, description="URL to scrape for user info")
+    bio: str = Field(None, description="Directly provided biography or context")
+    scraping_consent: bool = Field(False, description="Explicit user consent to scrape the provided URL")
 
 class IngestionResponse(BaseModel):
     """Response model for ingestion operations."""
@@ -211,6 +221,80 @@ async def sync_data_source(
     except Exception as e:
         logger.error(f"Sync failed for source {source}: {e}")
         raise HTTPException(status_code=500, detail=f"Sync failed: {str(e)}")
+
+@app.post("/ingest/user", response_model=IngestionResponse)
+async def ingest_user_profile(
+    request: UserIngestRequest,
+    background_tasks: BackgroundTasks
+):
+    """
+    Ingest a user profile.
+    
+    Combines provided bio and scraped content (if URL provided and consent given).
+    """
+    try:
+        # Validate consent if URL is provided
+        if request.url and not request.scraping_consent:
+            raise HTTPException(
+                status_code=400, 
+                detail="scraping_consent must be True when providing a URL"
+            )
+            
+        content_parts = []
+        if request.bio:
+            content_parts.append(f"Bio: {request.bio}")
+            
+        if request.url:
+            logger.info(f"Scraping user profile from {request.url}")
+            scraped_content = scrape_url(request.url)
+            if scraped_content:
+                content_parts.append(f"Scraped Content from {request.url}:\n{scraped_content}")
+            else:
+                logger.warning(f"Failed to scrape content from {request.url}")
+                # We continue even if scraping fails, as long as we have valid request
+        
+        full_text = "\n\n".join(content_parts)
+        
+        if not full_text:
+            raise HTTPException(status_code=400, detail="No content provided (bio or valid URL required)")
+            
+        doc_id = f"user_{request.name.lower().replace(' ', '_')}"
+        now = datetime.utcnow().isoformat()
+        
+        document = DocumentPayload(
+            doc_id=doc_id,
+            source="user_profile",
+            title=f"User Profile: {request.name}",
+            uri=request.url or f"user://{doc_id}",
+            text=full_text,
+            author="system",
+            created_at=now,
+            updated_at=now
+        )
+        
+        logger.info(f"Processing user profile: {doc_id}")
+        result = await pipeline.process_document(document)
+        
+        if result["success"]:
+            return IngestionResponse(
+                success=True,
+                message="User profile processed successfully",
+                doc_id=doc_id,
+                chunks_processed=result["chunks_processed"]
+            )
+        else:
+            return IngestionResponse(
+                success=False,
+                message="User profile processing failed",
+                doc_id=doc_id,
+                error=result["error"]
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error processing user profile {request.name}: {e}")
+        raise HTTPException(status_code=500, detail=f"Processing failed: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
