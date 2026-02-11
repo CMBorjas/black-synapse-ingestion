@@ -111,8 +111,24 @@ services:
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
     runtime: nvidia
 
+  postgres:
+    image: postgres:16
+    container_name: postgres
+    restart: always
+    environment:
+      POSTGRES_USER: demo
+      POSTGRES_PASSWORD: demo123
+      POSTGRES_DB: hitl
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+
+
 volumes:
   n8n_data:
   qdrant_data:
   ollama_data:
   asr_audio:
+  pgdata:
