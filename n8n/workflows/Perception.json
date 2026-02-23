@@ -1,0 +1,241 @@
+{
+  "name": "Perception",
+  "nodes": [
+    {
+      "parameters": {
+        "model": "moondream:latest",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        64,
+        240
+      ],
+      "id": "646c4517-57b2-4568-997b-c22e00a35884",
+      "name": "Ollama Chat Model",
+      "credentials": {
+        "ollamaApi": {
+          "id": "PRBswlHkOo3NGyVP",
+          "name": "Ollama account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Describe the scene and any objects and the emotion of the person.",
+        "options": {
+          "passthroughBinaryImages": true
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        64,
+        16
+      ],
+      "id": "083ad104-0f8e-4feb-b303-0b73d9292308",
+      "name": "VLM - Moondream",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:5000/analyze",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "img",
+              "inputDataFieldName": "=data"
+            },
+            {
+              "name": "actions",
+              "value": "[\"emotion\"]"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        128,
+        -272
+      ],
+      "id": "0a1c6bc2-c034-48ea-a2e2-2d176259619e",
+      "name": "DeepFace API"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {}
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -512,
+        -256
+      ],
+      "id": "e6614ade-3a38-45e6-aa10-934da8217bbb",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "url": "http://host.docker.internal:8089/snapshot",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -240,
+        -144
+      ],
+      "id": "e4228e18-1f72-4455-bf92-959b4209ca7b",
+      "name": "Capture Frame"
+    },
+    {
+      "parameters": {
+        "content": "## Emotion + Face Recognition"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -32,
+        -480
+      ],
+      "typeVersion": 1,
+      "id": "19e0ea3e-1d2b-425c-8f30-d441e99305e3",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "## Scene and objects Description"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        16,
+        368
+      ],
+      "typeVersion": 1,
+      "id": "c0b08a6a-dd3a-4483-a110-8a62ff7a43c7",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get data from the merged branches\nconst emotionData = $node[\"DeepFace API\"].json.results || [];\nconst sceneData =  $node[\"VLM - Moondream\"].json.output || \"No scene description available.\";\n\n// Get existing static data\nconst staticData = $getWorkflowStaticData('global');\n\n// Format the memo\nconst emotionText = emotionData.length > 0 ? `The user looks ${emotionData[0].dominant_emotion}.` : \"No face detected.\";\nconst sceneMemo = `[VISION MEMO] ${emotionText} Environment: ${sceneData}`;\n\n// Save it to static storage so other nodes/workflows can access it\nstaticData.lastVisionUpdate = sceneMemo;\n\nreturn {\n  scene_memo: sceneMemo\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        -128
+      ],
+      "id": "ff8da833-3fdf-4bc0-84c6-b75db3523235",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -528,
+        -80
+      ],
+      "id": "edec882d-718c-4bc4-a446-8f52189f4cbb",
+      "name": "When Executed by Another Workflow"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Ollama Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "VLM - Moondream",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "VLM - Moondream": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DeepFace API": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Capture Frame",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Capture Frame": {
+      "main": [
+        [
+          {
+            "node": "DeepFace API",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "VLM - Moondream",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Capture Frame",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "40bcb117-de54-4395-ada1-13e04cb7cd35",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "cf62c18d1d7d43f57771f2639fa7581d7f4995b1fc54b37462680c04da0cf259"
+  },
+  "id": "bQySjhmvT3I9JYUv",
+  "tags": []
+}

@@ -39,6 +39,22 @@ echo Waiting for services to be ready...
 REM Wait for services to be healthy
 timeout /t 10 /nobreak >nul
 
+REM Start local Python APIs (perception, TTS, ASR wake word)
+cd /d "%~dp0"
+if not exist logs mkdir logs 2>nul
+where python >nul 2>&1
+if %errorlevel% equ 0 (
+    echo Starting local Python services...
+    start "Capture Frame" /b python perception\capture_frame.py
+    echo    • capture_frame.py (perception) -^> http://127.0.0.1:8089
+    start "Speaker API" /b cmd /c "cd /d %~dp0TTS && python speaker_api.py"
+    echo    • speaker_api.py (TTS) -^> http://localhost:8001
+    start "Wake Word" /b python ASR\wake_word.py
+    echo    • wake_word.py (ASR) running in background
+) else (
+    echo Python not found. Skipping local APIs (perception, TTS, ASR wake word).
+)
+
 REM Check service health
 echo Checking service health...
 
@@ -74,6 +90,8 @@ echo    • Worker API: http://localhost:8000
 echo    • API Docs: http://localhost:8000/docs
 echo    • n8n Interface: http://localhost:5678
 echo    • Qdrant Dashboard: http://localhost:6333/dashboard
+echo    • Perception (capture frame): http://127.0.0.1:8089
+echo    • TTS (speaker API): http://localhost:8001
 echo.
 echo Next steps:
 echo    1. Configure your OpenAI API key in .env

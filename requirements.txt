@@ -15,6 +15,10 @@ tiktoken
 numpy
 openai-whisper
 
+# Perception
+opencv-python
+opencv-python-headless
+
 # Web Scraping & HTTP
 requests
 beautifulsoup4
