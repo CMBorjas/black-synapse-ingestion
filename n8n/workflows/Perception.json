@@ -8,10 +8,7 @@
       },
       "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
       "typeVersion": 1,
-      "position": [
-        64,
-        240
-      ],
+      "position": [64, 400],
       "id": "646c4517-57b2-4568-997b-c22e00a35884",
       "name": "Ollama Chat Model",
       "credentials": {
@@ -24,17 +21,14 @@
     {
       "parameters": {
         "promptType": "define",
-        "text": "=Describe the scene and any objects and the emotion of the person.",
+        "text": "=Describe the scene concisely. What objects are visible? What might the person be holding?",
         "options": {
           "passthroughBinaryImages": true
         }
       },
       "type": "@n8n/n8n-nodes-langchain.agent",
       "typeVersion": 3,
-      "position": [
-        64,
-        16
-      ],
+      "position": [64, 176],
       "id": "083ad104-0f8e-4feb-b303-0b73d9292308",
       "name": "VLM - Moondream",
       "alwaysOutputData": false
@@ -54,7 +48,7 @@
             },
             {
               "name": "actions",
-              "value": "[\"emotion\"]"
+              "value": "[\"emotion\", \"age\", \"gender\"]"
             }
           ]
         },
@@ -62,10 +56,7 @@
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.3,
-      "position": [
-        128,
-        -272
-      ],
+      "position": [128, -160],
       "id": "0a1c6bc2-c034-48ea-a2e2-2d176259619e",
       "name": "DeepFace API"
     },
@@ -73,71 +64,141 @@
       "parameters": {
         "rule": {
           "interval": [
-            {}
+            {
+              "field": "seconds",
+              "secondsInterval": 2
+            }
           ]
         }
       },
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [
-        -512,
-        -256
-      ],
+      "position": [-520, -32],
       "id": "e6614ade-3a38-45e6-aa10-934da8217bbb",
-      "name": "Schedule Trigger"
+      "name": "Schedule (every 2s)"
     },
     {
       "parameters": {
-        "url": "http://host.docker.internal:8089/snapshot",
+        "url": "http://host.docker.internal:8089/latest",
         "options": {}
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.3,
-      "position": [
-        -240,
-        -144
-      ],
+      "position": [-280, -32],
       "id": "e4228e18-1f72-4455-bf92-959b4209ca7b",
       "name": "Capture Frame"
     },
     {
       "parameters": {
-        "content": "## Emotion + Face Recognition"
+        "method": "POST",
+        "url": "http://host.docker.internal:8089/identify",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "data",
+              "inputDataFieldName": "=data"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [128, 48],
+      "id": "b2c3d4e5-f6a7-4b89-9c0d-1e2f3a4b5c6d",
+      "name": "Identify Face"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineAll",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [480, -32],
+      "id": "merge1-id",
+      "name": "Merge 1"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineAll",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [680, -32],
+      "id": "merge2-id",
+      "name": "Merge 2"
+    },
+    {
+      "parameters": {
+        "jsCode": "const deepface = $node[\"DeepFace API\"].json;\nconst identify = $node[\"Identify Face\"].json;\nconst moondream = $node[\"VLM - Moondream\"].json;\n\nconst results = deepface?.results || [];\nconst sceneCaption = moondream?.output || \"No scene description available.\";\nconst personName = identify?.name || \"Unknown\";\nconst nameConfidence = identify?.confidence ?? 0;\n\nconst faces = results.map((r) => ({\n  name: personName,\n  emotion: r.dominant_emotion || \"neutral\",\n  age: r.age,\n  gender: r.dominant_gender || r.gender,\n  confidence: nameConfidence\n}));\n\nif (faces.length === 0) {\n  faces.push({ name: personName, emotion: null, age: null, gender: null, confidence: nameConfidence });\n}\n\nreturn {\n  faces,\n  scene_caption: sceneCaption,\n  updated_at: Date.now() / 1000\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, -32],
+      "id": "ff8da833-3fdf-4bc0-84c6-b75db3523235",
+      "name": "Build State JSON"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8089/state",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ faces: $json.faces, scene_caption: $json.scene_caption, updated_at: $json.updated_at }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [1080, -32],
+      "id": "c1d2e3f4-a5b6-4c78-9d0e-1f2a3b4c5d6e",
+      "name": "Save State"
+    },
+    {
+      "parameters": {
+        "content": "## DeepFace\nDetect face, analyze emotion, age, gender"
       },
       "type": "n8n-nodes-base.stickyNote",
-      "position": [
-        -32,
-        -480
-      ],
+      "position": [-48, -368],
       "typeVersion": 1,
       "id": "19e0ea3e-1d2b-425c-8f30-d441e99305e3",
       "name": "Sticky Note"
     },
     {
       "parameters": {
-        "content": "## Scene and objects Description"
+        "content": "## Moondream\nScene caption every 2s"
       },
       "type": "n8n-nodes-base.stickyNote",
-      "position": [
-        16,
-        368
-      ],
+      "position": [0, 288],
       "typeVersion": 1,
       "id": "c0b08a6a-dd3a-4483-a110-8a62ff7a43c7",
       "name": "Sticky Note1"
     },
     {
       "parameters": {
-        "jsCode": "// Get data from the merged branches\nconst emotionData = $node[\"DeepFace API\"].json.results || [];\nconst sceneData =  $node[\"VLM - Moondream\"].json.output || \"No scene description available.\";\n\n// Get existing static data\nconst staticData = $getWorkflowStaticData('global');\n\n// Format the memo\nconst emotionText = emotionData.length > 0 ? `The user looks ${emotionData[0].dominant_emotion}.` : \"No face detected.\";\nconst sceneMemo = `[VISION MEMO] ${emotionText} Environment: ${sceneData}`;\n\n// Save it to static storage so other nodes/workflows can access it\nstaticData.lastVisionUpdate = sceneMemo;\n\nreturn {\n  scene_memo: sceneMemo\n};"
+        "content": "## Identify\nRecognize face from reference images\n(perception/faces/Name/ref.jpg)"
       },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        480,
-        -128
-      ],
-      "id": "ff8da833-3fdf-4bc0-84c6-b75db3523235",
-      "name": "Code in JavaScript"
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [80, 160],
+      "typeVersion": 1,
+      "id": "sticky-identify",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "## Save to JSON\nWrites to perception_state.json"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [1024, -176],
+      "typeVersion": 1,
+      "id": "d5e6f7a8-b9c0-4d12-e3f4-5a6b7c8d9e0f",
+      "name": "Sticky Note3"
     },
     {
       "parameters": {
@@ -145,10 +206,7 @@
       },
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
-      "position": [
-        -528,
-        -80
-      ],
+      "position": [-528, 80],
       "id": "edec882d-718c-4bc4-a446-8f52189f4cbb",
       "name": "When Executed by Another Workflow"
     }
@@ -170,9 +228,9 @@
       "main": [
         [
           {
-            "node": "Code in JavaScript",
+            "node": "Merge 2",
             "type": "main",
-            "index": 0
+            "index": 1
           }
         ]
       ]
@@ -181,14 +239,25 @@
       "main": [
         [
           {
-            "node": "Code in JavaScript",
+            "node": "Merge 1",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Schedule Trigger": {
+    "Schedule (every 2s)": {
+      "main": [
+        [
+          {
+            "node": "Capture Frame",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When Executed by Another Workflow": {
       "main": [
         [
           {
@@ -208,6 +277,11 @@
             "index": 0
           },
           {
+            "node": "Identify Face",
+            "type": "main",
+            "index": 0
+          },
+          {
             "node": "VLM - Moondream",
             "type": "main",
             "index": 0
@@ -215,11 +289,44 @@
         ]
       ]
     },
-    "When Executed by Another Workflow": {
+    "Identify Face": {
       "main": [
         [
           {
-            "node": "Capture Frame",
+            "node": "Merge 1",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge 1": {
+      "main": [
+        [
+          {
+            "node": "Merge 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge 2": {
+      "main": [
+        [
+          {
+            "node": "Build State JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build State JSON": {
+      "main": [
+        [
+          {
+            "node": "Save State",
             "type": "main",
             "index": 0
           }

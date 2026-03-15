@@ -31,9 +31,9 @@
     {
       "parameters": {
         "promptType": "define",
-        "text": "={{ $json.text || $json.chatInput }}",
+        "text": "={{ (() => { try { return $('ASR: Whisper').first().json.text; } catch(e) { try { return $('When chat message received').first().json.chatInput; } catch(e2) { return ''; } } })() }}",
         "options": {
-          "systemMessage": "=You are an AI assistant, you have eyes using the Perception tool"
+          "systemMessage": "=You are an AI assistant with live vision and access to a Perception tool for detailed visual analysis.\n\nCurrent visual context (from JSON state):\nPeople seen: {{ JSON.stringify($json.faces || []) }}\nScene: {{ $json.scene_caption || $json.scene_memo || 'No scene data available.' }}"
         }
       },
       "type": "@n8n/n8n-nodes-langchain.agent",
@@ -205,7 +205,9 @@
     },
     {
       "parameters": {
-        "options": {}
+        "options": {
+          "responseMode": "streaming"
+        }
       },
       "type": "@n8n/n8n-nodes-langchain.chatTrigger",
       "typeVersion": 1.3,
@@ -219,7 +221,7 @@
     },
     {
       "parameters": {
-        "description": "Call this tool if perception or visual information is required",
+        "description": "Call this tool for a detailed on-demand visual analysis of the current scene",
         "workflowId": {
           "__rl": true,
           "value": "bQySjhmvT3I9JYUv",
@@ -244,6 +246,20 @@
       ],
       "id": "d3932d85-8db2-414a-a38d-140c429d2554",
       "name": "Perception"
+    },
+    {
+      "parameters": {
+        "url": "http://host.docker.internal:8089/state",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        560,
+        208
+      ],
+      "id": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "name": "Get Vision State"
     }
   ],
   "pinData": {},
@@ -271,6 +287,17 @@
       ]
     },
     "ASR: Whisper": {
+      "main": [
+        [
+          {
+            "node": "Get Vision State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Vision State": {
       "main": [
         [
           {
@@ -334,7 +361,7 @@
       "main": [
         [
           {
-            "node": "LLM - Ollama 3",
+            "node": "Get Vision State",
             "type": "main",
             "index": 0
           }

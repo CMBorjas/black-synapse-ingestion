@@ -1,5 +1,10 @@
 # Black Synapse Data Ingestion - .gitignore
 
+# Perception state (generated at runtime)
+perception_state.json
+stream_face_detection.json
+face_embeddings.json
+
 # Environment variables and secrets
 .env
 .env.local
