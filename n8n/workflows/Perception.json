@@ -8,8 +8,11 @@
       },
       "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
       "typeVersion": 1,
-      "position": [64, 400],
-      "id": "646c4517-57b2-4568-997b-c22e00a35884",
+      "position": [
+        -304,
+        992
+      ],
+      "id": "5370ec55-425f-4492-b43f-ed9374276848",
       "name": "Ollama Chat Model",
       "credentials": {
         "ollamaApi": {
@@ -28,8 +31,11 @@
       },
       "type": "@n8n/n8n-nodes-langchain.agent",
       "typeVersion": 3,
-      "position": [64, 176],
-      "id": "083ad104-0f8e-4feb-b303-0b73d9292308",
+      "position": [
+        -304,
+        736
+      ],
+      "id": "ebad33aa-2dd2-4995-94f6-41428c11470d",
       "name": "VLM - Moondream",
       "alwaysOutputData": false
     },
@@ -48,7 +54,7 @@
             },
             {
               "name": "actions",
-              "value": "[\"emotion\", \"age\", \"gender\"]"
+              "value": "[\"gender\"]"
             }
           ]
         },
@@ -56,26 +62,12 @@
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.3,
-      "position": [128, -160],
-      "id": "0a1c6bc2-c034-48ea-a2e2-2d176259619e",
+      "position": [
+        -272,
+        16
+      ],
+      "id": "0cb1747e-650c-4794-af3f-8214cd23c46e",
       "name": "DeepFace API"
-    },
-    {
-      "parameters": {
-        "rule": {
-          "interval": [
-            {
-              "field": "seconds",
-              "secondsInterval": 2
-            }
-          ]
-        }
-      },
-      "type": "n8n-nodes-base.scheduleTrigger",
-      "typeVersion": 1.2,
-      "position": [-520, -32],
-      "id": "e6614ade-3a38-45e6-aa10-934da8217bbb",
-      "name": "Schedule (every 2s)"
     },
     {
       "parameters": {
@@ -84,8 +76,11 @@
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.3,
-      "position": [-280, -32],
-      "id": "e4228e18-1f72-4455-bf92-959b4209ca7b",
+      "position": [
+        -688,
+        144
+      ],
+      "id": "d47844fa-f7ed-4d21-8a13-4946d5822f93",
       "name": "Capture Frame"
     },
     {
@@ -107,8 +102,11 @@
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.3,
-      "position": [128, 48],
-      "id": "b2c3d4e5-f6a7-4b89-9c0d-1e2f3a4b5c6d",
+      "position": [
+        -256,
+        304
+      ],
+      "id": "54303efa-31ab-4082-a4c1-ecd5d5fbe783",
       "name": "Identify Face"
     },
     {
@@ -119,8 +117,11 @@
       },
       "type": "n8n-nodes-base.merge",
       "typeVersion": 3,
-      "position": [480, -32],
-      "id": "merge1-id",
+      "position": [
+        80,
+        144
+      ],
+      "id": "1d1980ce-b244-4ab3-a251-a56daed9172d",
       "name": "Merge 1"
     },
     {
@@ -131,8 +132,11 @@
       },
       "type": "n8n-nodes-base.merge",
       "typeVersion": 3,
-      "position": [680, -32],
-      "id": "merge2-id",
+      "position": [
+        304,
+        272
+      ],
+      "id": "29016ff2-5d19-430c-b43e-245a5ec57915",
       "name": "Merge 2"
     },
     {
@@ -141,8 +145,11 @@
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [880, -32],
-      "id": "ff8da833-3fdf-4bc0-84c6-b75db3523235",
+      "position": [
+        544,
+        272
+      ],
+      "id": "1e174439-8b79-407f-afad-20c35c9a87b1",
       "name": "Build State JSON"
     },
     {
@@ -156,8 +163,11 @@
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.3,
-      "position": [1080, -32],
-      "id": "c1d2e3f4-a5b6-4c78-9d0e-1f2a3b4c5d6e",
+      "position": [
+        768,
+        272
+      ],
+      "id": "dea10f21-bebb-4fd1-8345-7324c5318a8f",
       "name": "Save State"
     },
     {
@@ -165,9 +175,12 @@
         "content": "## DeepFace\nDetect face, analyze emotion, age, gender"
       },
       "type": "n8n-nodes-base.stickyNote",
-      "position": [-48, -368],
+      "position": [
+        -304,
+        -208
+      ],
       "typeVersion": 1,
-      "id": "19e0ea3e-1d2b-425c-8f30-d441e99305e3",
+      "id": "dc6c832a-58d7-49a1-aabb-135791fe0a4f",
       "name": "Sticky Note"
     },
     {
@@ -175,19 +188,26 @@
         "content": "## Moondream\nScene caption every 2s"
       },
       "type": "n8n-nodes-base.stickyNote",
-      "position": [0, 288],
+      "position": [
+        -336,
+        1136
+      ],
       "typeVersion": 1,
-      "id": "c0b08a6a-dd3a-4483-a110-8a62ff7a43c7",
+      "id": "cf4a3033-76a9-4238-bb66-9c877c42065d",
       "name": "Sticky Note1"
     },
     {
       "parameters": {
-        "content": "## Identify\nRecognize face from reference images\n(perception/faces/Name/ref.jpg)"
+        "content": "## Identify\nRecognize face from reference images\n(perception/faces/Name/ref.jpg)",
+        "height": 144
       },
       "type": "n8n-nodes-base.stickyNote",
-      "position": [80, 160],
+      "position": [
+        -304,
+        480
+      ],
       "typeVersion": 1,
-      "id": "sticky-identify",
+      "id": "f0b210bf-8ed4-47b9-960a-4bcf0203fdbe",
       "name": "Sticky Note2"
     },
     {
@@ -195,9 +215,12 @@
         "content": "## Save to JSON\nWrites to perception_state.json"
       },
       "type": "n8n-nodes-base.stickyNote",
-      "position": [1024, -176],
+      "position": [
+        704,
+        80
+      ],
       "typeVersion": 1,
-      "id": "d5e6f7a8-b9c0-4d12-e3f4-5a6b7c8d9e0f",
+      "id": "c691e14d-6aee-4297-8715-8204db5e51d2",
       "name": "Sticky Note3"
     },
     {
@@ -206,9 +229,32 @@
       },
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
-      "position": [-528, 80],
-      "id": "edec882d-718c-4bc4-a446-8f52189f4cbb",
+      "position": [
+        -912,
+        400
+      ],
+      "id": "7a2f4c90-6617-4e6f-b277-23851d9342fc",
       "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "seconds",
+              "secondsInterval": 7
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -928,
+        144
+      ],
+      "id": "940d7671-d209-4063-8177-5d418e6a47b6",
+      "name": "Schedule (every 7s)"
     }
   ],
   "pinData": {},
@@ -240,17 +286,6 @@
         [
           {
             "node": "Merge 1",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Schedule (every 2s)": {
-      "main": [
-        [
-          {
-            "node": "Capture Frame",
             "type": "main",
             "index": 0
           }
@@ -332,13 +367,24 @@
           }
         ]
       ]
+    },
+    "Schedule (every 7s)": {
+      "main": [
+        [
+          {
+            "node": "Capture Frame",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": false,
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "40bcb117-de54-4395-ada1-13e04cb7cd35",
+  "versionId": "7024346f-4469-448c-8426-4fda9bcb1588",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "cf62c18d1d7d43f57771f2639fa7581d7f4995b1fc54b37462680c04da0cf259"

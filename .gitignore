@@ -4,6 +4,7 @@
 perception_state.json
 stream_face_detection.json
 face_embeddings.json
+proactive_state.json
 
 # Environment variables and secrets
 .env

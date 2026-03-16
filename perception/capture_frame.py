@@ -61,6 +61,14 @@ EMBEDDINGS_PATH = os.getenv(
     "EMBEDDINGS_PATH",
     str(Path(__file__).resolve().parent.parent / "face_embeddings.json"),
 )
+PERSONALIZATION_PATH = os.getenv(
+    "PERSONALIZATION_PATH",
+    str(Path(__file__).resolve().parent.parent / "personalization.json"),
+)
+PROACTIVE_STATE_FILE = os.getenv(
+    "PROACTIVE_STATE_FILE",
+    str(Path(__file__).resolve().parent.parent / "proactive_state.json"),
+)
 SIMILARITY_THRESHOLD = float(os.getenv("SIMILARITY_THRESHOLD", "0.45"))
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "Facenet512")
 MAX_EMBEDDINGS_PER_USER = int(os.getenv("MAX_EMBEDDINGS_PER_USER", "20"))
@@ -162,6 +170,56 @@ def _read_stream_face_file() -> dict:
     except Exception as exc:
         log.warning("Failed to read stream face file: %s", exc)
         return {"faces": [], "updated_at": None}
+
+
+def _load_personalization() -> dict:
+    """Load personalization data: { name: context_string, ... }."""
+    p = Path(PERSONALIZATION_PATH)
+    if not p.exists():
+        return {}
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception as exc:
+        log.warning("Failed to read personalization: %s", exc)
+        return {}
+
+
+def _build_personalization_context(faces: list) -> str:
+    """Build personalization context string for recognized faces."""
+    if not faces:
+        return ""
+    names = {f.get("name") for f in faces if f.get("name") and f.get("name") != "Unknown"}
+    if not names:
+        return ""
+    personalization = _load_personalization()
+    parts = [f"- {name}: {personalization[name]}" for name in names if name in personalization]
+    return "\n".join(parts) if parts else ""
+
+
+def _read_proactive_state() -> dict:
+    """Read proactive greeting state."""
+    p = Path(PROACTIVE_STATE_FILE)
+    if not p.exists():
+        return {"last_interaction": 0, "last_greeting": 0}
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        return {
+            "last_interaction": float(data.get("last_interaction", 0)),
+            "last_greeting": float(data.get("last_greeting", 0)),
+        }
+    except Exception as exc:
+        log.warning("Failed to read proactive state: %s", exc)
+        return {"last_interaction": 0, "last_greeting": 0}
+
+
+def _write_proactive_state(updates: dict):
+    """Update proactive state (merge with existing)."""
+    state = _read_proactive_state()
+    state.update(updates)
+    p = Path(PROACTIVE_STATE_FILE)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(state, indent=2), encoding="utf-8")
 
 
 # ── Embedding-based face recognition ─────────────────────────────────
@@ -564,13 +622,39 @@ def update_state(payload: dict = Body(...)):
 @app.get("/state")
 def get_state():
     """Read the latest vision state (n8n/VLM combined: faces + scene_caption)."""
-    return _read_state_file()
+    state = _read_state_file()
+    faces = state.get("faces") or []
+    ctx = _build_personalization_context(faces)
+    if ctx:
+        state["personalization_context"] = ctx
+    return state
 
 
 @app.get("/stream-faces")
 def get_stream_faces():
     """Read face detection from DeepFace stream loop (separate from /state)."""
     return _read_stream_face_file()
+
+
+# ── Proactive greeting state ─────────────────────────────────────────
+@app.get("/proactive-state")
+def get_proactive_state():
+    """Return last_interaction and last_greeting timestamps for proactive greeting logic."""
+    return _read_proactive_state()
+
+
+@app.post("/proactive-interaction")
+def record_proactive_interaction():
+    """Record that the user just interacted (ASR or chat). Call from MainWorkflow."""
+    _write_proactive_state({"last_interaction": time.time()})
+    return {"ok": True}
+
+
+@app.post("/proactive-greeting-done")
+def record_proactive_greeting_done():
+    """Record that a proactive greeting was just played. Call after greeting TTS."""
+    _write_proactive_state({"last_greeting": time.time()})
+    return {"ok": True}
 
 
 # ── Face identification (embedding-based: user_1, user_2, ...) ─────────
