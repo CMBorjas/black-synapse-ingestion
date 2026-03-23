@@ -6,12 +6,12 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 import cv2
 import numpy as np
 import requests
-from fastapi import Body, File, FastAPI, Query, Response, UploadFile
+from fastapi import Body, File, FastAPI, Query, Request, Response, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
 
 logging.basicConfig(level=logging.INFO)
@@ -37,7 +37,7 @@ PUSH_ENABLED = os.getenv("PUSH_ENABLED", "true").lower() == "true"
 
 # DeepFace stream mode: when true, stream runs face analysis + identification (heavy).
 # When false, uses simple capture loop — inference only via n8n Perception workflow.
-DEEPFACE_STREAM = os.getenv("DEEPFACE_STREAM", "false").lower() == "true"
+DEEPFACE_STREAM = "true"
 STREAM_FRAME_THRESHOLD = int(os.getenv("STREAM_FRAME_THRESHOLD", "5"))
 STREAM_TIME_THRESHOLD = int(os.getenv("STREAM_TIME_THRESHOLD", "5"))
 
@@ -69,7 +69,9 @@ PROACTIVE_STATE_FILE = os.getenv(
     "PROACTIVE_STATE_FILE",
     str(Path(__file__).resolve().parent.parent / "proactive_state.json"),
 )
-SIMILARITY_THRESHOLD = float(os.getenv("SIMILARITY_THRESHOLD", "0.45"))
+SIMILARITY_THRESHOLD = float(os.getenv("SIMILARITY_THRESHOLD", "0.38"))
+CLEAR_PRIMARY_RATIO = float(os.getenv("CLEAR_PRIMARY_RATIO", "1.5"))  # Primary face must be this many times larger than second
+MERGE_SIMILARITY_THRESHOLD = float(os.getenv("MERGE_SIMILARITY_THRESHOLD", "0.35"))  # Merge user_N into name if above this
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "Facenet512")
 MAX_EMBEDDINGS_PER_USER = int(os.getenv("MAX_EMBEDDINGS_PER_USER", "20"))
 _embeddings_lock = threading.Lock()
@@ -264,11 +266,60 @@ def _save_embeddings(data: dict):
     p.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
+def _match_embedding(emb: np.ndarray, add_if_unknown: bool = True) -> tuple[str, float]:
+    """
+    Match embedding against stored embeddings. Caller must hold _embeddings_lock.
+    Returns (user_id, confidence). Optionally adds new embedding for unknown faces.
+    """
+    db = _load_embeddings()
+    best_id = None
+    best_sim = 0.0
+    emb = np.asarray(emb, dtype=np.float64)
+
+    for user_id, entry in db.items():
+        emb_list = entry.get("embeddings", entry.get("embedding", []))
+        if not isinstance(emb_list, list):
+            emb_list = [emb_list]
+        for stored_raw in emb_list:
+            stored = np.array(stored_raw, dtype=np.float64)
+            if len(stored) != len(emb):
+                continue
+            sim = _cosine_similarity(emb, stored)
+            if sim > best_sim and sim >= SIMILARITY_THRESHOLD:
+                best_sim = sim
+                best_id = user_id
+
+    if best_id is not None:
+        entry = db[best_id]
+        emb_list = entry.get("embeddings", [])
+        if not emb_list:
+            emb_list = [entry.get("embedding", [])] if entry.get("embedding") else []
+        if emb.tolist() not in emb_list and len(emb_list) < MAX_EMBEDDINGS_PER_USER:
+            emb_list.append(emb.tolist())
+            entry["embeddings"] = emb_list
+            if "embedding" in entry:
+                del entry["embedding"]
+            _save_embeddings(db)
+        return best_id, best_sim
+
+    if add_if_unknown:
+        next_num = max(
+            (int(k.replace("user_", "")) for k in db if k.startswith("user_") and k[5:].isdigit()),
+            default=0,
+        ) + 1
+        new_id = f"user_{next_num}"
+        db[new_id] = {"embeddings": [emb.tolist()], "first_seen": time.time()}
+        _save_embeddings(db)
+        log.info("New face registered: %s", new_id)
+        return new_id, 1.0
+
+    return "Unknown", 0.0
+
+
 def _identify_by_embedding(face_img: np.ndarray, add_if_unknown: bool = True, detector_backend: str = "skip") -> tuple[str, float]:
     """
-    Match face embedding against stored embeddings (multiple per user).
-    Returns (user_id, confidence). Adds new embedding on match to learn variations.
-    Uses Facenet512 by default for robustness across angle/lighting.
+    Match face embedding against stored embeddings (single face).
+    Returns (user_id, confidence). Uses Facenet512 by default.
     """
     df = _get_deepface()
     if df is None:
@@ -289,49 +340,94 @@ def _identify_by_embedding(face_img: np.ndarray, add_if_unknown: bool = True, de
         return "Unknown", 0.0
 
     with _embeddings_lock:
-        db = _load_embeddings()
-        best_id = None
-        best_sim = 0.0
+        return _match_embedding(emb, add_if_unknown)
 
-        for user_id, entry in db.items():
-            emb_list = entry.get("embeddings", entry.get("embedding", []))
-            if not isinstance(emb_list, list):
-                emb_list = [emb_list]
-            for stored_raw in emb_list:
-                stored = np.array(stored_raw, dtype=np.float64)
-                if len(stored) != len(emb):
-                    continue
-                sim = _cosine_similarity(emb, stored)
-                if sim > best_sim and sim >= SIMILARITY_THRESHOLD:
-                    best_sim = sim
-                    best_id = user_id
 
-        if best_id is not None:
-            # Add this embedding to the user to learn more variations (angle/lighting)
-            entry = db[best_id]
-            emb_list = entry.get("embeddings", [])
-            if not emb_list:
-                emb_list = [entry.get("embedding", [])] if entry.get("embedding") else []
-            if emb.tolist() not in emb_list and len(emb_list) < MAX_EMBEDDINGS_PER_USER:
-                emb_list.append(emb.tolist())
-                entry["embeddings"] = emb_list
-                if "embedding" in entry:
-                    del entry["embedding"]
-                _save_embeddings(db)
-            return best_id, best_sim
+def _identify_all_faces(img: np.ndarray, add_if_unknown: bool = True, detector_backend: str = "opencv") -> List[dict]:
+    """
+    Identify all faces in image. Returns list of { name, confidence } in detection order.
+    """
+    df = _get_deepface()
+    if df is None:
+        return []
+    try:
+        objs = df.represent(
+            img_path=img,
+            model_name=EMBEDDING_MODEL,
+            detector_backend=detector_backend,
+            enforce_detection=False,
+            align=True,
+        )
+        if not objs or len(objs) == 0:
+            return []
+    except Exception as exc:
+        log.debug("Multi-face embedding extraction failed: %s", exc)
+        return []
 
-        if add_if_unknown:
-            next_num = max(
-                (int(k.replace("user_", "")) for k in db if k.startswith("user_") and k[5:].isdigit()),
-                default=0,
-            ) + 1
-            new_id = f"user_{next_num}"
-            db[new_id] = {"embeddings": [emb.tolist()], "first_seen": time.time()}
-            _save_embeddings(db)
-            log.info("New face registered: %s", new_id)
-            return new_id, 1.0
+    identities = []
+    with _embeddings_lock:
+        for obj in objs:
+            emb = np.array(obj["embedding"], dtype=np.float64)
+            name, confidence = _match_embedding(emb, add_if_unknown)
+            identities.append({"name": name, "confidence": round(confidence, 2)})
 
-    return "Unknown", 0.0
+    return identities
+
+
+def _register_face_with_merge(name: str, emb: np.ndarray) -> dict:
+    """
+    Add embedding to name and merge any matching user_N into it.
+    Caller must hold _embeddings_lock.
+    Returns { ok, name, merged_from: [...] }.
+    """
+    db = _load_embeddings()
+    emb = np.asarray(emb, dtype=np.float64)
+    emb_list = [emb.tolist()]
+    merged_from = []
+
+    # Find user_N entries that match this embedding (to merge)
+    for uid in list(db.keys()):
+        if uid == name or not (uid.startswith("user_") and uid[5:].replace("_", "").isdigit()):
+            continue
+        entry = db[uid]
+        emb_list_other = entry.get("embeddings", entry.get("embedding", []))
+        if not isinstance(emb_list_other, list):
+            emb_list_other = [emb_list_other]
+        for stored in emb_list_other:
+            st = np.array(stored, dtype=np.float64)
+            if len(st) == len(emb) and _cosine_similarity(emb, st) >= MERGE_SIMILARITY_THRESHOLD:
+                merged_from.append(uid)
+                for e in emb_list_other:
+                    if e not in emb_list and len(emb_list) < MAX_EMBEDDINGS_PER_USER:
+                        emb_list.append(e if isinstance(e, list) else list(e))
+                break
+
+    # Merge: remove merged users, add their embeddings to target
+    for uid in merged_from:
+        entry = db.get(uid)
+        if entry:
+            other_list = entry.get("embeddings", entry.get("embedding", []))
+            if not isinstance(other_list, list):
+                other_list = [other_list]
+            for e in other_list:
+                el = e if isinstance(e, list) else list(e)
+                if el not in emb_list and len(emb_list) < MAX_EMBEDDINGS_PER_USER * 2:
+                    emb_list.append(el)
+            del db[uid]
+            log.info("Merged %s into %s", uid, name)
+
+    # Add/update target
+    if name in db:
+        existing = db[name].get("embeddings", [])
+        for e in emb_list:
+            if e not in existing and len(existing) < MAX_EMBEDDINGS_PER_USER:
+                existing.append(e)
+        db[name]["embeddings"] = existing
+    else:
+        db[name] = {"embeddings": emb_list[:MAX_EMBEDDINGS_PER_USER], "first_seen": time.time()}
+
+    _save_embeddings(db)
+    return {"ok": True, "name": name, "merged_from": merged_from}
 
 
 # ── Camera helpers ────────────────────────────────────────────────────
@@ -681,6 +777,190 @@ async def identify(data: Optional[UploadFile] = File(None), add_if_unknown: bool
         img, add_if_unknown=add_if_unknown, detector_backend="opencv"
     )
     return {"name": name, "confidence": round(confidence, 2)}
+
+
+@app.post("/identify-multi")
+async def identify_multi(data: Optional[UploadFile] = File(None), add_if_unknown: bool = True):
+    """Identify all faces in image. Returns one identity per face in detection order."""
+    img_bytes = None
+    if data and data.filename:
+        img_bytes = await data.read()
+    else:
+        with _buf.lock:
+            frame = _buf.frame
+        if frame is not None:
+            img_bytes = _encode_jpeg(frame)
+    if not img_bytes:
+        return {"identities": [], "reason": "no image provided"}
+
+    nparr = np.frombuffer(img_bytes, np.uint8)
+    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    if img is None:
+        return {"identities": [], "reason": "invalid image"}
+
+    identities = _identify_all_faces(
+        img, add_if_unknown=add_if_unknown, detector_backend="opencv"
+    )
+    return {"identities": identities}
+
+
+@app.post("/register-face")
+async def register_face(request: Request):
+    """
+    Register a face with the given name. Uses provided image or latest frame.
+    Accepts JSON body {"name": "..."} or form name=... and optional file.
+    - 0 faces: no new faces to register
+    - 1 unknown: register it
+    - 0 unknowns, 1 face (user_N): merge/rename that user into the name
+    - 2+ unknowns: register only if clear primary (largest ≥ 1.5× second)
+    When registering, merges any matching user_N into the new name.
+    """
+    name = None
+    img_bytes = None
+    ct = (request.headers.get("content-type") or "").split(";")[0].strip().lower()
+    if ct == "application/json":
+        try:
+            body = await request.json()
+            name = body.get("name") if isinstance(body, dict) else None
+        except Exception:
+            pass
+    else:
+        form = await request.form()
+        name = form.get("name")
+        if isinstance(name, bytes):
+            name = name.decode("utf-8", errors="replace")
+        if isinstance(name, str) and name.strip():
+            pass
+        else:
+            name = None
+        # File can be under "data", "file", or "image"
+        for key in ("data", "file", "image"):
+            f = form.get(key)
+            if hasattr(f, "read") and hasattr(f, "filename") and f.filename:
+                img_bytes = await f.read()
+                break
+    if not name or not str(name).strip():
+        return JSONResponse(
+            {"ok": False, "message": "Name is required."},
+            status_code=400,
+        )
+    name = str(name).strip()
+
+    if not img_bytes:
+        with _buf.lock:
+            frame = _buf.frame
+        if frame is not None:
+            img_bytes = _encode_jpeg(frame)
+    if not img_bytes:
+        return JSONResponse(
+            {"ok": False, "message": "I don't see any image. Please make sure I can see you, or send a photo."},
+            status_code=400,
+        )
+
+    nparr = np.frombuffer(img_bytes, np.uint8)
+    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    if img is None:
+        return JSONResponse(
+            {"ok": False, "message": "Invalid image."},
+            status_code=400,
+        )
+
+    df = _get_deepface()
+    if df is None:
+        return JSONResponse(
+            {"ok": False, "message": "Face recognition is not available."},
+            status_code=503,
+        )
+
+    try:
+        objs = df.represent(
+            img_path=img,
+            model_name=EMBEDDING_MODEL,
+            detector_backend="opencv",
+            enforce_detection=False,
+            align=True,
+        )
+    except Exception as e:
+        log.warning("register-face represent failed: %s", e)
+        return JSONResponse(
+            {"ok": False, "message": "Could not analyze the image."},
+            status_code=500,
+        )
+
+    if not objs:
+        return {
+            "ok": False,
+            "message": "I don't see any new faces to register.",
+            "suggest_reply": "I don't see any faces in the image. Please come closer or face the camera.",
+        }
+
+    # Get identity for each face without adding new unknowns
+    with _embeddings_lock:
+        face_info = []
+        for obj in objs:
+            emb = np.array(obj.get("embedding", []), dtype=np.float64)
+            fa = obj.get("facial_area") or {}
+            w = int(fa.get("w", 0))
+            h = int(fa.get("h", 0))
+            area = w * h
+            identity, conf = _match_embedding(emb, add_if_unknown=False)
+            face_info.append({"embedding": emb, "area": area, "identity": identity, "confidence": conf})
+
+    unknowns = [f for f in face_info if f["identity"] == "Unknown"]
+    known = [f for f in face_info if f["identity"] != "Unknown"]
+
+    # 0 unknowns, 1 face (user_N): merge/rename that user into the name
+    if len(unknowns) == 0 and len(face_info) == 1:
+        with _embeddings_lock:
+            out = _register_face_with_merge(name, face_info[0]["embedding"])
+        return {
+            "ok": True,
+            "message": f"Nice to meet you, {name}! I've learned your face.",
+            "name": name,
+            "merged_from": out.get("merged_from", []),
+            "suggest_reply": f"Nice to meet you, {name}! I'll remember you.",
+        }
+
+    # 0 unknowns, 2+ faces
+    if len(unknowns) == 0:
+        return {
+            "ok": False,
+            "message": "I don't see any new faces to register.",
+            "suggest_reply": "I already know everyone I see. If you're new, please come closer so I can register you.",
+        }
+
+    # 1 unknown: register it
+    if len(unknowns) == 1:
+        with _embeddings_lock:
+            out = _register_face_with_merge(name, unknowns[0]["embedding"])
+        return {
+            "ok": True,
+            "message": f"Nice to meet you, {name}! I've learned your face.",
+            "name": name,
+            "merged_from": out.get("merged_from", []),
+            "suggest_reply": f"Nice to meet you, {name}! I'll remember you.",
+        }
+
+    # 2+ unknowns: require clear primary
+    sorted_unknowns = sorted(unknowns, key=lambda f: f["area"], reverse=True)
+    area0 = sorted_unknowns[0]["area"]
+    area1 = sorted_unknowns[1]["area"] if len(sorted_unknowns) > 1 else 0
+    if area1 <= 0 or area0 >= CLEAR_PRIMARY_RATIO * area1:
+        with _embeddings_lock:
+            out = _register_face_with_merge(name, sorted_unknowns[0]["embedding"])
+        return {
+            "ok": True,
+            "message": f"Nice to meet you, {name}! I've learned your face.",
+            "name": name,
+            "merged_from": out.get("merged_from", []),
+            "suggest_reply": f"Nice to meet you, {name}! I'll remember you.",
+        }
+
+    return {
+        "ok": False,
+        "message": "I see multiple people. Can you come closer so I can recognize you, or introduce yourself when you're the only one in frame?",
+        "suggest_reply": "I see multiple people. Can you come closer so I can recognize you, or introduce yourself when you're the only one in frame?",
+    }
 
 
 # ── Camera & stream endpoints ────────────────────────────────────────
