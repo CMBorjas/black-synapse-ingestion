@@ -35,6 +35,30 @@ echo "Waiting for services to be ready..."
 # Wait for services to be healthy
 sleep 10
 
+# Start local Python APIs (perception, TTS, ASR wake word)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+if command -v python &> /dev/null || command -v python3 &> /dev/null; then
+    PYTHON_CMD=$(command -v python 2>/dev/null || command -v python3)
+    echo "Starting local Python services..."
+    mkdir -p logs
+
+    # Perception: frame capture API (port 8089)
+    nohup "$PYTHON_CMD" perception/capture_frame.py >> logs/capture_frame.log 2>&1 &
+    echo "  • capture_frame.py (perception) -> http://127.0.0.1:8089"
+
+    # TTS: speaker API (port 8001)
+    (cd TTS && nohup "$PYTHON_CMD" speaker_api.py >> ../logs/speaker_api.log 2>&1 &)
+    echo "  • speaker_api.py (TTS) -> http://0.0.0.0:8001"
+
+    # ASR: wake word listener (runs until stopped)
+    nohup "$PYTHON_CMD" ASR/wake_word.py >> logs/wake_word.log 2>&1 &
+    echo "  • wake_word.py (ASR) running in background"
+else
+    echo "Python not found. Skipping local APIs (perception, TTS, ASR wake word)."
+fi
+
 # Check service health
 echo "Checking service health..."
 
@@ -67,6 +91,8 @@ echo "   • Worker API: http://localhost:8000"
 echo "   • API Docs: http://localhost:8000/docs"
 echo "   • n8n Interface: http://localhost:5678"
 echo "   • Qdrant Dashboard: http://localhost:6333/dashboard"
+echo "   • Perception (capture frame): http://127.0.0.1:8089"
+echo "   • TTS (speaker API): http://localhost:8001"
 echo ""
 echo "Next steps:"
 echo "   1. Configure your OpenAI API key in .env"

@@ -121,6 +121,12 @@ services:
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
     runtime: nvidia
 
+  deepface:
+    image: serengil/deepface:latest
+    ports:
+      - "5000:5000"
+    restart: unless-stopped
+
   postgres:
     image: postgres:15
     environment:
