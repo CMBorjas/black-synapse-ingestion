@@ -1,0 +1,163 @@
+{
+    "fullName": "Elyas Larfi",
+    "fullName_citation": "https://www.linkedin.com/in/elyaslarfi",
+    "careerHistory": [
+        {
+            "title": "Software Engineering Intern",
+            "title_citation": "https://www.linkedin.com/in/elyaslarfi",
+            "company": "Medtronic",
+            "company_citation": "https://www.linkedin.com/in/elyaslarfi",
+            "dates": "2026 - Present",
+            "dates_citation": "https://www.linkedin.com/in/elyaslarfi",
+            "description": "Incoming/Current Software Engineering Intern."
+        },
+        {
+            "title": "Software Engineering Intern",
+            "title_citation": "https://www.linkedin.com/in/elyaslarfi",
+            "company": "Enveda Biosciences",
+            "company_citation": "https://www.linkedin.com/in/elyaslarfi",
+            "dates": "2025-05 - 2025-08",
+            "dates_citation": "https://www.linkedin.com/in/elyaslarfi",
+            "description": "Software Engineering Intern."
+        },
+        {
+            "title": "Applied ML Intern / Research Assistant",
+            "title_citation": "https://www.linkedin.com/in/elyaslarfi",
+            "company": "University of Colorado Anschutz Medical Campus",
+            "company_citation": "https://www.linkedin.com/in/elyaslarfi",
+            "dates": "2023-08 - Present",
+            "dates_citation": "https://www.linkedin.com/in/elyaslarfi",
+            "description": "Specializing in reinforcement learning strategies for musculoskeletal models."
+        },
+        {
+            "title": "President / Technology Officer",
+            "title_citation": "https://www.linkedin.com/in/elyaslarfi",
+            "company": "AI Student Association (AISA) at CU Denver",
+            "company_citation": "https://www.linkedin.com/in/elyaslarfi",
+            "dates": "2024-01 - Present",
+            "dates_citation": "https://www.linkedin.com/in/elyaslarfi",
+            "description": "Leads a collaborative platform for AI enthusiasts and oversees technical initiatives, including the development of a full-stack web application."
+        },
+        {
+            "title": "Data Engineering Intern",
+            "title_citation": "https://www.linkedin.com/in/elyaslarfi",
+            "company": "University of Colorado Denver",
+            "company_citation": "https://www.linkedin.com/in/elyaslarfi",
+            "dates": "2023-05 - 2023-08",
+            "dates_citation": "https://www.linkedin.com/in/elyaslarfi",
+            "description": "Data Engineering Intern."
+        }
+    ],
+    "projects": [
+        {
+            "projectName": "Robotic Arm Pick-and-Place System",
+            "projectName_citation": "https://www.linkedin.com/in/elyaslarfi",
+            "description": "A fully autonomous 3-DoF robotic arm that has integrated color detection and placement.",
+            "description_citation": "https://www.linkedin.com/posts/elyaslarfi_robotics-ai-embeddedsystems-activity-7329577911366160384-8lTj",
+            "technologiesUsed": [
+                {
+                    "value": "Computer Vision",
+                    "value_citation": "https://www.linkedin.com/in/elyaslarfi"
+                },
+                {
+                    "value": "Robotics",
+                    "value_citation": "https://www.linkedin.com/in/elyaslarfi"
+                },
+                {
+                    "value": "AI",
+                    "value_citation": "https://www.linkedin.com/in/elyaslarfi"
+                },
+                {
+                    "value": "Embedded Systems",
+                    "value_citation": "https://www.linkedin.com/in/elyaslarfi"
+                }
+            ]
+        },
+        {
+            "projectName": "The Decoy Challenge (Adversarial Machine Learning Framework)",
+            "projectName_citation": "https://www.linkedin.com/in/elyaslarfi",
+            "description": "A framework for a student challenge focused on generating adversarial examples to mislead machine learning models trained on the CIFAR-10 dataset. 1st Place Winner.",
+            "description_citation": "https://www.linkedin.com/in/elyaslarfi",
+            "technologiesUsed": [
+                {
+                    "value": "Adversarial Machine Learning",
+                    "value_citation": "https://www.linkedin.com/in/elyaslarfi"
+                },
+                {
+                    "value": "Python",
+                    "value_citation": "https://www.linkedin.com/in/elyaslarfi"
+                },
+                {
+                    "value": "CIFAR-10",
+                    "value_citation": "https://www.linkedin.com/in/elyaslarfi"
+                }
+            ]
+        },
+        {
+            "projectName": "AI Student Association Web Application",
+            "projectName_citation": "https://www.linkedin.com/in/elyaslarfi",
+            "description": "Led a team of three developers to create a full-stack web application for the AI Student Association at CU Denver.",
+            "description_citation": "https://www.linkedin.com/in/elyaslarfi",
+            "technologiesUsed": [
+                {
+                    "value": "Full-stack development",
+                    "value_citation": "https://www.linkedin.com/in/elyaslarfi"
+                }
+            ]
+        },
+        {
+            "projectName": "Image2Poem",
+            "projectName_citation": "https://www.linkedin.com/in/elyaslarfi",
+            "description": "A project involving generating poems from input images using AI models.",
+            "description_citation": "https://www.linkedin.com/in/elyaslarfi",
+            "technologiesUsed": [
+                {
+                    "value": "Natural Language Processing (NLP)",
+                    "value_citation": "https://www.linkedin.com/in/elyaslarfi"
+                },
+                {
+                    "value": "Computer Vision",
+                    "value_citation": "https://www.linkedin.com/in/elyaslarfi"
+                }
+            ]
+        },
+        {
+            "projectName": "Musculoskeletal Arm Model Research",
+            "projectName_citation": "https://www.linkedin.com/in/elyaslarfi",
+            "description": "Research project involving training a musculoskeletal arm model to reach targets using reinforcement learning strategies.",
+            "description_citation": "https://www.linkedin.com/in/elyaslarfi",
+            "technologiesUsed": [
+                {
+                    "value": "Reinforcement Learning",
+                    "value_citation": "https://www.linkedin.com/in/elyaslarfi"
+                },
+                {
+                    "value": "Musculoskeletal Modeling",
+                    "value_citation": "https://www.linkedin.com/in/elyaslarfi"
+                }
+            ]
+        }
+    ],
+    "bio": "Elyas Larfi is a software engineer and AI enthusiast at the University of Colorado Denver, focused on AI, robotics, and autonomous systems. He currently serves as the Technology Officer and President of the AI Student Association (AISA) at CU Denver. Professionally, he is a Research Assistant at the University of Colorado Anschutz Medical Campus, specializing in reinforcement learning strategies, and an incoming Software Engineering Intern at Medtronic.",
+    "bio_citation": "https://www.linkedin.com/in/elyaslarfi",
+    "recentNewsAndPublications": [
+        {
+            "title": "Sponsor Chair and Registration Chair for 2026 Data Science & AI Symposium",
+            "title_citation": "https://datascience.ucdenver.edu/events/events-archive/symposium-2026",
+            "publicationDate": "2026-04-10",
+            "publicationDate_citation": "https://datascience.ucdenver.edu/events/events-archive/symposium-2026",
+            "source": "University of Colorado Denver",
+            "source_citation": "https://datascience.ucdenver.edu/events/events-archive/symposium-2026",
+            "url": "https://datascience.ucdenver.edu/events/events-archive/symposium-2026",
+            "url_citation": "https://datascience.ucdenver.edu/events/events-archive/symposium-2026"
+        },
+        {
+            "title": "MILO Awards 2025: New Club of the Year for AISA",
+            "title_citation": "https://www.linkedin.com/in/elyaslarfi",
+            "publicationDate": "2025",
+            "publicationDate_citation": "https://www.linkedin.com/in/elyaslarfi",
+            "source": "MILO Awards",
+            "source_citation": "https://www.linkedin.com/in/elyaslarfi"
+        }
+    ]
+}
