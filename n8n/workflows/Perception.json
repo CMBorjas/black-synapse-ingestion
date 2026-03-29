@@ -86,7 +86,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "http://host.docker.internal:8089/identify",
+        "url": "http://host.docker.internal:8089/identify-multi",
         "sendBody": true,
         "contentType": "multipart-form-data",
         "bodyParameters": {
@@ -107,7 +107,7 @@
         304
       ],
       "id": "54303efa-31ab-4082-a4c1-ecd5d5fbe783",
-      "name": "Identify Face"
+      "name": "Identify Faces"
     },
     {
       "parameters": {
@@ -141,7 +141,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const deepface = $node[\"DeepFace API\"].json;\nconst identify = $node[\"Identify Face\"].json;\nconst moondream = $node[\"VLM - Moondream\"].json;\n\nconst results = deepface?.results || [];\nconst sceneCaption = moondream?.output || \"No scene description available.\";\nconst personName = identify?.name || \"Unknown\";\nconst nameConfidence = identify?.confidence ?? 0;\n\nconst faces = results.map((r) => ({\n  name: personName,\n  emotion: r.dominant_emotion || \"neutral\",\n  age: r.age,\n  gender: r.dominant_gender || r.gender,\n  confidence: nameConfidence\n}));\n\nif (faces.length === 0) {\n  faces.push({ name: personName, emotion: null, age: null, gender: null, confidence: nameConfidence });\n}\n\nreturn {\n  faces,\n  scene_caption: sceneCaption,\n  updated_at: Date.now() / 1000\n};"
+        "jsCode": "const deepface = $node[\"DeepFace API\"].json;\nconst identifyMulti = $node[\"Identify Faces\"].json;\nconst moondream = $node[\"VLM - Moondream\"].json;\n\nconst results = deepface?.results || [];\nconst identities = identifyMulti?.identities || [];\nconst sceneCaption = moondream?.output || \"No scene description available.\";\n\nconst faces = results.map((r, i) => ({\n  name: identities[i]?.name || \"Unknown\",\n  emotion: r.dominant_emotion || \"neutral\",\n  age: r.age,\n  gender: r.dominant_gender || r.gender,\n  confidence: identities[i]?.confidence ?? 0\n}));\n\nif (faces.length === 0 && identities.length > 0) {\n  identities.forEach((id) => faces.push({ name: id.name, emotion: null, age: null, gender: null, confidence: id.confidence }));\n} else if (faces.length === 0) {\n  faces.push({ name: \"Unknown\", emotion: null, age: null, gender: null, confidence: 0 });\n}\n\nreturn {\n  faces,\n  scene_caption: sceneCaption,\n  updated_at: Date.now() / 1000\n};"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -198,7 +198,7 @@
     },
     {
       "parameters": {
-        "content": "## Identify\nRecognize face from reference images\n(perception/faces/Name/ref.jpg)",
+        "content": "## Identify Faces\nMulti-face identification via embeddings\n(identify-multi returns one identity per face)",
         "height": 144
       },
       "type": "n8n-nodes-base.stickyNote",
@@ -312,7 +312,7 @@
             "index": 0
           },
           {
-            "node": "Identify Face",
+            "node": "Identify Faces",
             "type": "main",
             "index": 0
           },
@@ -324,7 +324,7 @@
         ]
       ]
     },
-    "Identify Face": {
+    "Identify Faces": {
       "main": [
         [
           {

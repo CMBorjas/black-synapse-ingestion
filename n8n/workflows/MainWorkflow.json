@@ -4,7 +4,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "http://host.docker.internal:8001/play",
+        "url": "=http://host.docker.internal:8001/play?epoch={{ $('Edit Fields').item.json.epoch }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -33,7 +33,7 @@
         "promptType": "define",
         "text": "={{ (() => { try { return $('ASR: Whisper').first().json.text; } catch(e) { try { return $('When chat message received').first().json.chatInput; } catch(e2) { return ''; } } })() }}",
         "options": {
-          "systemMessage": "=You are Lynx, an AI assistant deployed on a SPOT robot at the University of Colorado Denver.\n\nYour role is to interact naturally with people on campus, answer questions about CU Denver, and provide helpful real-world assistance using both perception and the cu_denver_search database.\n\nYou have access to two tools:\n\n--------------------------------------------------\n1. Perception Tool\nUse this tool when you need detailed visual information about the environment.\nUse it when: someone asks what you see, who is nearby, about objects/activities/events, or to verify visual information before responding.\n\n--------------------------------------------------\n2. cu_denver_search (CU Denver Knowledge Database)\nThis tool retrieves information from the cu_denver_search vector database. Use it for: campus buildings, departments, professors, events, student services, directions, university policies, research labs, programs/majors, hackathons, clubs, organizations.\n\nIMPORTANT: When calling cu_denver_search, you MUST provide the search text in a field called \"input\". Example: {\"input\": \"computer science programs at CU Denver\"}. Do NOT use \"query\" or other field names.\n\n--------------------------------------------------\nGreeting\n- When People seen contains someone with a name other than \"Unknown\", greet them by name in your first response (e.g., \"Hi Elyas!\").\n- If everyone is Unknown, use a general friendly greeting.\n\n--------------------------------------------------\nNatural acknowledgments (use when appropriate)\n- Before answering: \"Let me check...\", \"Good question!\", \"Sure.\"\n- When using Perception: \"Let me take a look.\"\n- When using cu_denver_search: \"Let me find that for you.\"\n- When uncertain: \"I'm not entirely sure, but...\"\n- Brief filler: \"Well, ...\" \"So, ...\" End with \"Anything else?\" when natural.\n\n--------------------------------------------------\nTurn-taking\n- Start with a brief acknowledgment when appropriate: \"Let me check...\", \"One moment...\", or \"Good question!\"\n\n--------------------------------------------------\nBehavior\n- Speak naturally. Be concise but friendly.\n- If you don't know something, say so honestly.\n- Use cu_denver_search for campus questions; Perception for environment questions; combine both when relevant.\n- You are physically present on campus; reference what you see.\n\n--------------------------------------------------\nCurrent context\n\nTime: {{ $json.current_time || 'unknown' }}\nDay: {{ $json.day_of_week || 'unknown' }}\n\nPeople seen:\n{{ JSON.stringify($json.faces || []) }}\n\nScene description:\n{{ $json.scene_caption || $json.scene_memo || 'No scene data available.' }}\n\n{{ $json.personalization_context ? 'Personalization:\\n' + $json.personalization_context : '' }}\n\n--------------------------------------------------\nWhen responding: consider visual context, retrieve from cu_denver_search when relevant, provide the most helpful answer."
+          "systemMessage": "=You are Lynx, an AI assistant deployed on a SPOT robot at the University of Colorado Denver.\n\nYour role is to interact naturally with people on campus, answer questions about CU Denver, and provide helpful real-world assistance using both perception and the cu_denver_search database.\n\nYou have access to three tools:\n\n--------------------------------------------------\n1. Perception Tool\nUse this tool when you need detailed visual information about the environment.\nUse it when: someone asks what you see, who is nearby, about objects/activities/events, or to verify visual information before responding.\n\n--------------------------------------------------\n2. cu_denver_search (CU Denver Knowledge Database)\nThis tool retrieves information from the cu_denver_search vector database. Use it for: campus buildings, departments, professors, events, student services, directions, university policies, research labs, programs/majors, hackathons, clubs, organizations.\n\nIMPORTANT: When calling cu_denver_search, you MUST provide the search text in a field called \"input\". Example: {\"input\": \"computer science programs at CU Denver\"}. Do NOT use \"query\" or other field names.\n\n--------------------------------------------------\n3. Register Person\nCall this tool when someone introduces themselves and gives their name (e.g. \"I'm Elyas\", \"My name is Sarah\", \"Call me Alex\"). Provide the person's name. The tool will register their face so you can recognize them next time.\n\n--------------------------------------------------\nGreeting\n- When People seen contains someone with a name other than \"Unknown\", greet them by name in your first response (e.g., \"Hi Elyas!\").\n- If everyone is Unknown, use a general friendly greeting.\n\n--------------------------------------------------\nNatural acknowledgments (use when appropriate)\n- Before answering: \"Let me check...\", \"Good question!\", \"Sure.\"\n- When using Perception: \"Let me take a look.\"\n- When using cu_denver_search: \"Let me find that for you.\"\n- When uncertain: \"I'm not entirely sure, but...\"\n- Brief filler: \"Well, ...\" \"So, ...\" End with \"Anything else?\" when natural.\n\n--------------------------------------------------\nTurn-taking\n- Start with a brief acknowledgment when appropriate: \"Let me check...\", \"One moment...\", or \"Good question!\"\n\n--------------------------------------------------\nBehavior\n- Speak naturally. Be concise but friendly.\n- If you don't know something, say so honestly.\n- Use cu_denver_search for campus questions; Perception for environment questions; combine both when relevant.\n- You are physically present on campus; reference what you see.\n\n--------------------------------------------------\nCurrent context\n\nTime: {{ $json.current_time || 'unknown' }}\nDay: {{ $json.day_of_week || 'unknown' }}\n\nPeople seen:\n{{ JSON.stringify($json.faces || []) }}\n\nScene description:\n{{ $json.scene_caption || $json.scene_memo || 'No scene data available.' }}\n\nTour / QR location (campus stop; sticky until a new code is scanned):\n{{ $json.location || 'Not set — no QR scanned yet.' }}\n\n{{ $json.personalization_context ? 'Personalization:\\n' + $json.personalization_context : '' }}\n\nWhen the user asks where you are or what stop this is, use the Tour / QR location together with the scene description and cu_denver_search.\n\n--------------------------------------------------\nWhen responding: consider visual context, retrieve from cu_denver_search when relevant, provide the most helpful answer."
         }
       },
       "type": "@n8n/n8n-nodes-langchain.agent",
@@ -73,7 +73,7 @@
     },
     {
       "parameters": {
-        "fileSelector": "={{ $json.path }}",
+        "fileSelector": "={{ $('Local File Trigger').item.json.path }}",
         "options": {}
       },
       "type": "n8n-nodes-base.readWriteFile",
@@ -84,6 +84,44 @@
       ],
       "id": "ece9d78a-6ea1-43e3-af2e-2d378e31da36",
       "name": "Read/Write Files from Disk"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8001/interrupt",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -592,
+        -400
+      ],
+      "id": "speaker-interrupt-barge-in",
+      "name": "Speaker Interrupt"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "speaker-epoch-assign",
+              "name": "epoch",
+              "value": "={{ $json.epoch }}",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -400,
+        -400
+      ],
+      "id": "edit-fields-speaker-epoch",
+      "name": "Edit Fields"
     },
     {
       "parameters": {
@@ -249,6 +287,34 @@
     },
     {
       "parameters": {
+        "description": "Register a person's face when they introduce themselves. Call with the person's name.",
+        "workflowId": {
+          "__rl": true,
+          "value": "RegPersonWkf001XYZ",
+          "mode": "id"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "name": "={{ $fromAI('name', 'The person\\'s name when they introduce themselves (e.g. I am X, my name is X, call me X)', 'string') }}"
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        768,
+        200
+      ],
+      "id": "reg-person-tool-001",
+      "name": "Register Person"
+    },
+    {
+      "parameters": {
         "url": "http://host.docker.internal:8089/state",
         "options": {}
       },
@@ -288,11 +354,96 @@
       ],
       "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
       "name": "Record Interaction"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst transcript = ($('ASR: Whisper').first()?.json?.text || $('When chat message received').first()?.json?.chatInput || '').trim();\nconst m = transcript.match(/\\b(?:I'm|I am|My name is|Call me)\\s+([A-Za-z][A-Za-z0-9'\\-\\s]*?)(?:\\s|$|\\.|,|!|\\?)/i);\nconst name = m ? m[1].trim() : null;\nreturn items.map(item => ({ json: { ...item.json, registerName: name || undefined } }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        -320
+      ],
+      "id": "keyword-intro-extract-001",
+      "name": "Keyword Intro Check"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-register-name",
+              "leftValue": "={{ $json.registerName }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        700,
+        -320
+      ],
+      "id": "keyword-intro-if-001",
+      "name": "Has Intro Name?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8089/register-face",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ name: $json.registerName }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        920,
+        -380
+      ],
+      "id": "keyword-intro-http-001",
+      "name": "Register Face (Keyword)"
     }
   ],
   "pinData": {},
   "connections": {
     "Local File Trigger": {
+      "main": [
+        [
+          {
+            "node": "Speaker Interrupt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Speaker Interrupt": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
       "main": [
         [
           {
@@ -337,8 +488,36 @@
             "node": "Record Interaction",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "Keyword Intro Check",
+            "type": "main",
+            "index": 0
           }
         ]
+      ]
+    },
+    "Keyword Intro Check": {
+      "main": [
+        [
+          {
+            "node": "Has Intro Name?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Intro Name?": {
+      "main": [
+        [
+          {
+            "node": "Register Face (Keyword)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
       ]
     },
     "Enrich with Time": {
@@ -396,11 +575,16 @@
         ]
       ]
     },
+    "When chat path": {
+      "main": [
+        []
+      ]
+    },
     "When chat message received": {
       "main": [
         [
           {
-            "node": "Get Vision State",
+            "node": "Speaker Interrupt",
             "type": "main",
             "index": 0
           }
@@ -408,6 +592,17 @@
       ]
     },
     "Perception": {
+      "ai_tool": [
+        [
+          {
+            "node": "LLM - Ollama 3",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Register Person": {
       "ai_tool": [
         [
           {
