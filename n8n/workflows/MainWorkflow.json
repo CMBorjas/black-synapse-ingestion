@@ -3,46 +3,19 @@
   "nodes": [
     {
       "parameters": {
-        "method": "POST",
-        "url": "=http://host.docker.internal:8001/play?epoch={{ $('Edit Fields').item.json.epoch }}",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Content-Type",
-              "value": "audio/wav"
-            }
-          ]
-        },
-        "sendBody": true,
-        "contentType": "binaryData",
-        "inputDataFieldName": "data",
-        "options": {}
-      },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.3,
-      "position": [
-        1280,
-        -176
-      ],
-      "id": "52472d6e-52ed-4a19-a170-70611d6f41ba",
-      "name": "Speaker"
-    },
-    {
-      "parameters": {
         "promptType": "define",
         "text": "={{ (() => { try { return $('ASR: Whisper').first().json.text; } catch(e) { try { return $('When chat message received').first().json.chatInput; } catch(e2) { return ''; } } })() }}",
         "options": {
-          "systemMessage": "=You are Lynx, an AI assistant deployed on a SPOT robot at the University of Colorado Denver.\n\nYour role is to interact naturally with people on campus, answer questions about CU Denver, and provide helpful real-world assistance using both perception and the cu_denver_search database.\n\nYou have access to three tools:\n\n--------------------------------------------------\n1. Perception Tool\nUse this tool when you need detailed visual information about the environment.\nUse it when: someone asks what you see, who is nearby, about objects/activities/events, or to verify visual information before responding.\n\n--------------------------------------------------\n2. cu_denver_search (CU Denver Knowledge Database)\nThis tool retrieves information from the cu_denver_search vector database. Use it for: campus buildings, departments, professors, events, student services, directions, university policies, research labs, programs/majors, hackathons, clubs, organizations.\n\nIMPORTANT: When calling cu_denver_search, you MUST provide the search text in a field called \"input\". Example: {\"input\": \"computer science programs at CU Denver\"}. Do NOT use \"query\" or other field names.\n\n--------------------------------------------------\n3. Register Person\nCall this tool when someone introduces themselves and gives their name (e.g. \"I'm Elyas\", \"My name is Sarah\", \"Call me Alex\"). Provide the person's name. The tool will register their face so you can recognize them next time.\n\n--------------------------------------------------\nGreeting\n- When People seen contains someone with a name other than \"Unknown\", greet them by name in your first response (e.g., \"Hi Elyas!\").\n- If everyone is Unknown, use a general friendly greeting.\n\n--------------------------------------------------\nNatural acknowledgments (use when appropriate)\n- Before answering: \"Let me check...\", \"Good question!\", \"Sure.\"\n- When using Perception: \"Let me take a look.\"\n- When using cu_denver_search: \"Let me find that for you.\"\n- When uncertain: \"I'm not entirely sure, but...\"\n- Brief filler: \"Well, ...\" \"So, ...\" End with \"Anything else?\" when natural.\n\n--------------------------------------------------\nTurn-taking\n- Start with a brief acknowledgment when appropriate: \"Let me check...\", \"One moment...\", or \"Good question!\"\n\n--------------------------------------------------\nBehavior\n- Speak naturally. Be concise but friendly.\n- If you don't know something, say so honestly.\n- Use cu_denver_search for campus questions; Perception for environment questions; combine both when relevant.\n- You are physically present on campus; reference what you see.\n\n--------------------------------------------------\nCurrent context\n\nTime: {{ $json.current_time || 'unknown' }}\nDay: {{ $json.day_of_week || 'unknown' }}\n\nPeople seen:\n{{ JSON.stringify($json.faces || []) }}\n\nScene description:\n{{ $json.scene_caption || $json.scene_memo || 'No scene data available.' }}\n\nTour / QR location (campus stop; sticky until a new code is scanned):\n{{ $json.location || 'Not set — no QR scanned yet.' }}\n\n{{ $json.personalization_context ? 'Personalization:\\n' + $json.personalization_context : '' }}\n\nWhen the user asks where you are or what stop this is, use the Tour / QR location together with the scene description and cu_denver_search.\n\n--------------------------------------------------\nWhen responding: consider visual context, retrieve from cu_denver_search when relevant, provide the most helpful answer."
+          "systemMessage": "=You are Lynx, an AI assistant on a SPOT robot at CU Denver. You help people on campus using real-time perception and CU Denver databases. Only answer CU Denver-related questions. For anything else: \"I'm specialized for CU Denver — anything campus-related I can help with?\" PERCEPTION You have real-time vision. Your current scene and detected people are provided below in CURRENT CONTEXT. Use this proactively — greet people by name if recognized, and reference your surroundings naturally when relevant. TOOLS - cu_denver_faculty_search → any question about a specific person (faculty, staff, researchers) input: {\"input\": \"search text\"} - cu_denver_search → everything else (buildings, programs, admissions, events, policies) input: {\"input\": \"search text\"} If both person + topic → call both tools. RULES -  Use they/them for unknown gender. - If tools don't answer it: \"Try contacting [office] or ucdenver.edu directly.\" - Offer \"Want me to send more details?\" for complex topics. CURRENT CONTEXT Time: {{ $json.current_time || 'unknown' }} Day: {{ $json.day_of_week || 'unknown' }} People: {{ JSON.stringify($json.faces || []) }} Scene: {{ $json.scene_caption || $json.scene_memo || 'No scene data.' }} {{ $json.personalization_context || '' }}"
         }
       },
       "type": "@n8n/n8n-nodes-langchain.agent",
       "typeVersion": 3,
       "position": [
-        496,
-        -176
+        -672,
+        48
       ],
-      "id": "93953f56-4f34-4692-99a6-ecd1cce776af",
+      "id": "135d6ab8-6729-421b-94b9-ef5517b0c8f9",
       "name": "LLM - Ollama 3",
       "alwaysOutputData": false
     },
@@ -62,10 +35,10 @@
       "type": "n8n-nodes-base.localFileTrigger",
       "typeVersion": 1,
       "position": [
-        -592,
-        -272
+        -2544,
+        -48
       ],
-      "id": "ac610e54-41a2-41d0-bd7c-fc926f31d999",
+      "id": "8c1452fc-caa9-4ca2-a23a-80729efd6808",
       "name": "Local File Trigger",
       "retryOnFail": false,
       "alwaysOutputData": false,
@@ -79,49 +52,11 @@
       "type": "n8n-nodes-base.readWriteFile",
       "typeVersion": 1,
       "position": [
-        -400,
-        -272
+        -1824,
+        -48
       ],
-      "id": "ece9d78a-6ea1-43e3-af2e-2d378e31da36",
+      "id": "317eebf7-fdf0-49a6-8b4d-d97384ea7f1f",
       "name": "Read/Write Files from Disk"
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "http://host.docker.internal:8001/interrupt",
-        "options": {}
-      },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.3,
-      "position": [
-        -592,
-        -400
-      ],
-      "id": "speaker-interrupt-barge-in",
-      "name": "Speaker Interrupt"
-    },
-    {
-      "parameters": {
-        "assignments": {
-          "assignments": [
-            {
-              "id": "speaker-epoch-assign",
-              "name": "epoch",
-              "value": "={{ $json.epoch }}",
-              "type": "number"
-            }
-          ]
-        },
-        "options": {}
-      },
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.4,
-      "position": [
-        -400,
-        -400
-      ],
-      "id": "edit-fields-speaker-epoch",
-      "name": "Edit Fields"
     },
     {
       "parameters": {
@@ -144,10 +79,10 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.3,
       "position": [
-        -80,
-        -272
+        -1536,
+        -48
       ],
-      "id": "192d4eb3-228d-4987-9afe-d27d0aab9ec0",
+      "id": "0003aee8-bb46-4f38-9b97-f22b41277d30",
       "name": "ASR: Whisper",
       "executeOnce": false
     },
@@ -169,10 +104,10 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.3,
       "position": [
-        1056,
-        -176
+        -112,
+        48
       ],
-      "id": "4e1443a8-9ac3-4c66-b206-99b9e5111b34",
+      "id": "0f6d603c-813a-43c0-8c7c-3b8c4f616369",
       "name": "TTS: Kokoro",
       "alwaysOutputData": true,
       "executeOnce": false
@@ -184,10 +119,10 @@
       "type": "@n8n/n8n-nodes-langchain.embeddingsOllama",
       "typeVersion": 1,
       "position": [
-        496,
-        256
+        -592,
+        480
       ],
-      "id": "df647819-16e0-49ae-862f-7457a55c47bd",
+      "id": "9d0fced0-6098-4e53-829d-db752316ae92",
       "name": "Embeddings Ollama",
       "credentials": {
         "ollamaApi": {
@@ -204,10 +139,10 @@
       "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
       "typeVersion": 1,
       "position": [
-        352,
-        160
+        -864,
+        288
       ],
-      "id": "55c9ccd1-8983-41a6-bf5b-d314f3188e0f",
+      "id": "3a3f3e72-160d-4489-b503-8286cd37ce01",
       "name": "Ollama Chat Model",
       "credentials": {
         "ollamaApi": {
@@ -235,11 +170,17 @@
       "type": "@n8n/n8n-nodes-langchain.vectorStoreQdrant",
       "typeVersion": 1.3,
       "position": [
-        496,
-        80
+        -592,
+        304
       ],
-      "id": "ad2f7a4a-56f0-40f1-a94e-685ac01f9627",
-      "name": "cu_denver_search"
+      "id": "a4141351-187a-4894-96da-22d4114cb550",
+      "name": "cu_denver_search",
+      "credentials": {
+        "qdrantApi": {
+          "id": "9tbARtLagTlU3KWm",
+          "name": "QdrantApi account"
+        }
+      }
     },
     {
       "parameters": {
@@ -250,68 +191,12 @@
       "type": "@n8n/n8n-nodes-langchain.chatTrigger",
       "typeVersion": 1.3,
       "position": [
-        -224,
-        64
+        -1664,
+        288
       ],
-      "id": "ffcadf8c-838f-409d-92c3-bce7b35c1aab",
+      "id": "d9c86a63-b838-4d63-a69e-ba2e0e147774",
       "name": "When chat message received",
       "webhookId": "4dde8d39-32d0-4624-8870-f5b12aec5858"
-    },
-    {
-      "parameters": {
-        "description": "Call this tool for a detailed on-demand visual analysis of the current scene",
-        "workflowId": {
-          "__rl": true,
-          "value": "bQySjhmvT3I9JYUv",
-          "mode": "list",
-          "cachedResultUrl": "/workflow/bQySjhmvT3I9JYUv",
-          "cachedResultName": "Perception"
-        },
-        "workflowInputs": {
-          "mappingMode": "defineBelow",
-          "value": {},
-          "matchingColumns": [],
-          "schema": [],
-          "attemptToConvertTypes": false,
-          "convertFieldsToString": false
-        }
-      },
-      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
-      "typeVersion": 2.2,
-      "position": [
-        768,
-        80
-      ],
-      "id": "f784137a-a2cd-43c8-a6d3-5466a632141b",
-      "name": "Perception"
-    },
-    {
-      "parameters": {
-        "description": "Register a person's face when they introduce themselves. Call with the person's name.",
-        "workflowId": {
-          "__rl": true,
-          "value": "RegPersonWkf001XYZ",
-          "mode": "id"
-        },
-        "workflowInputs": {
-          "mappingMode": "defineBelow",
-          "value": {
-            "name": "={{ $fromAI('name', 'The person\\'s name when they introduce themselves (e.g. I am X, my name is X, call me X)', 'string') }}"
-          },
-          "matchingColumns": [],
-          "schema": [],
-          "attemptToConvertTypes": false,
-          "convertFieldsToString": false
-        }
-      },
-      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
-      "typeVersion": 2.2,
-      "position": [
-        768,
-        200
-      ],
-      "id": "reg-person-tool-001",
-      "name": "Register Person"
     },
     {
       "parameters": {
@@ -321,10 +206,10 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.3,
       "position": [
-        240,
-        -224
+        -1200,
+        -16
       ],
-      "id": "9c45ef14-4f9f-4590-ac09-e4e94bc9bb27",
+      "id": "eaea4bc7-d6fb-4a74-b2b8-53449a519b8b",
       "name": "Get Vision State"
     },
     {
@@ -334,89 +219,138 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        368,
-        -224
+        -928,
+        16
       ],
-      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "id": "2149d8bc-6773-4963-99ee-f16d14373cba",
       "name": "Enrich with Time"
     },
     {
       "parameters": {
+        "mode": "retrieve-as-tool",
+        "toolDescription": "Work with cu_denver_faculty_search to retrieve faculty information",
+        "qdrantCollection": {
+          "__rl": true,
+          "value": "cu_denver_database",
+          "mode": "list",
+          "cachedResultName": "cu_denver_database"
+        },
+        "topK": 8,
+        "includeDocumentMetadata": false,
+        "options": {
+          "searchFilterJson": "{\n  \"must\": [\n    {\n      \"key\": \"metadata.type\",\n      \"match\": { \"value\": \"faculty_profile\" }\n    }\n  ]\n}",
+          "contentPayloadKey": "text"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreQdrant",
+      "typeVersion": 1.3,
+      "position": [
+        -336,
+        304
+      ],
+      "id": "f8bd8f34-65ab-47d4-9822-bf68747c23bb",
+      "name": "cu_denver_faculty_search",
+      "credentials": {
+        "qdrantApi": {
+          "id": "9tbARtLagTlU3KWm",
+          "name": "QdrantApi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "embeddinggemma:latest"
+      },
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOllama",
+      "typeVersion": 1,
+      "position": [
+        -336,
+        496
+      ],
+      "id": "54407c66-ae44-455d-a9d6-230af5ddd51f",
+      "name": "Embeddings Ollama1",
+      "credentials": {
+        "ollamaApi": {
+          "id": "PRBswlHkOo3NGyVP",
+          "name": "Ollama account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        -704,
+        288
+      ],
+      "id": "9e907f56-4217-4e33-896e-fa9de01836e6",
+      "name": "Simple Memory"
+    },
+    {
+      "parameters": {
         "method": "POST",
-        "url": "http://host.docker.internal:8089/proactive-interaction",
+        "url": "http://host.docker.internal:8001/interrupt",
         "options": {}
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.3,
       "position": [
-        368,
-        -352
+        -2320,
+        -48
       ],
-      "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
-      "name": "Record Interaction"
+      "id": "c24ff371-9ebb-4a1d-8bfb-a748779bcbd1",
+      "name": "Speaker1"
     },
     {
       "parameters": {
-        "jsCode": "const items = $input.all();\nconst transcript = ($('ASR: Whisper').first()?.json?.text || $('When chat message received').first()?.json?.chatInput || '').trim();\nconst m = transcript.match(/\\b(?:I'm|I am|My name is|Call me)\\s+([A-Za-z][A-Za-z0-9'\\-\\s]*?)(?:\\s|$|\\.|,|!|\\?)/i);\nconst name = m ? m[1].trim() : null;\nreturn items.map(item => ({ json: { ...item.json, registerName: name || undefined } }));"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        480,
-        -320
-      ],
-      "id": "keyword-intro-extract-001",
-      "name": "Keyword Intro Check"
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict"
-          },
-          "conditions": [
+        "assignments": {
+          "assignments": [
             {
-              "id": "cond-register-name",
-              "leftValue": "={{ $json.registerName }}",
-              "rightValue": "",
-              "operator": {
-                "type": "string",
-                "operation": "notEmpty"
-              }
+              "id": "58d181a3-5b4d-439e-b53e-16a0294706b8",
+              "name": "epoch",
+              "value": "={{$json.epoch}}",
+              "type": "string"
             }
-          ],
-          "combinator": "and"
+          ]
         },
         "options": {}
       },
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
       "position": [
-        700,
-        -320
+        -2064,
+        -48
       ],
-      "id": "keyword-intro-if-001",
-      "name": "Has Intro Name?"
+      "id": "5bf1535c-800a-40d6-9792-027c192a06c5",
+      "name": "Edit Fields"
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "http://host.docker.internal:8089/register-face",
+        "url": "=http://host.docker.internal:8001/play?epoch={{ $('Edit Fields').item.json.epoch }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "audio/wav"
+            }
+          ]
+        },
         "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ name: $json.registerName }) }}",
+        "contentType": "binaryData",
+        "inputDataFieldName": "data",
         "options": {}
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.3,
       "position": [
-        920,
-        -380
+        128,
+        48
       ],
-      "id": "keyword-intro-http-001",
-      "name": "Register Face (Keyword)"
+      "id": "fe2ec160-1aaa-4fdc-b33d-fb65bd0aad02",
+      "name": "Speaker"
     }
   ],
   "pinData": {},
@@ -425,29 +359,7 @@
       "main": [
         [
           {
-            "node": "Speaker Interrupt",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Speaker Interrupt": {
-      "main": [
-        [
-          {
-            "node": "Edit Fields",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Edit Fields": {
-      "main": [
-        [
-          {
-            "node": "Read/Write Files from Disk",
+            "node": "Speaker1",
             "type": "main",
             "index": 0
           }
@@ -483,41 +395,8 @@
             "node": "Enrich with Time",
             "type": "main",
             "index": 0
-          },
-          {
-            "node": "Record Interaction",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Keyword Intro Check",
-            "type": "main",
-            "index": 0
           }
         ]
-      ]
-    },
-    "Keyword Intro Check": {
-      "main": [
-        [
-          {
-            "node": "Has Intro Name?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Has Intro Name?": {
-      "main": [
-        [
-          {
-            "node": "Register Face (Keyword)",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        []
       ]
     },
     "Enrich with Time": {
@@ -575,23 +454,18 @@
         ]
       ]
     },
-    "When chat path": {
-      "main": [
-        []
-      ]
-    },
     "When chat message received": {
       "main": [
         [
           {
-            "node": "Speaker Interrupt",
+            "node": "Get Vision State",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Perception": {
+    "cu_denver_search": {
       "ai_tool": [
         [
           {
@@ -602,7 +476,7 @@
         ]
       ]
     },
-    "Register Person": {
+    "cu_denver_faculty_search": {
       "ai_tool": [
         [
           {
@@ -612,13 +486,51 @@
           }
         ]
       ]
+    },
+    "Embeddings Ollama1": {
+      "ai_embedding": [
+        [
+          {
+            "node": "cu_denver_faculty_search",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory": {
+      "ai_memory": [
+        []
+      ]
+    },
+    "Speaker1": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Read/Write Files from Disk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
-  "active": false,
+  "active": true,
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "40719dde-b13f-49b6-905d-2598c8ff4246",
+  "versionId": "50a6d854-66ee-4e9c-81da-2af8e866b94c",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "cf62c18d1d7d43f57771f2639fa7581d7f4995b1fc54b37462680c04da0cf259"
