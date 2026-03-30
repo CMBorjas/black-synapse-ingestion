@@ -6,7 +6,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -35,9 +35,15 @@ N8N_WEBHOOK_URL = os.getenv(
 )
 PUSH_ENABLED = os.getenv("PUSH_ENABLED", "true").lower() == "true"
 
+# QR → persisted `location` field (sticky until a new QR replaces it)
+QR_SCAN_ENABLED = os.getenv("QR_SCAN_ENABLED", "true").lower() == "true"
+QR_SCAN_INTERVAL = float(os.getenv("QR_SCAN_INTERVAL", "0.5"))
+# Draw QR outline + label on MJPEG /stream frames (decode runs per streamed frame when enabled)
+QR_STREAM_OVERLAY = os.getenv("QR_STREAM_OVERLAY", "true").lower() == "true"
+
 # DeepFace stream mode: when true, stream runs face analysis + identification (heavy).
 # When false, uses simple capture loop — inference only via n8n Perception workflow.
-DEEPFACE_STREAM = "true"
+DEEPFACE_STREAM = os.getenv("DEEPFACE_STREAM", "true").lower() == "true"
 STREAM_FRAME_THRESHOLD = int(os.getenv("STREAM_FRAME_THRESHOLD", "5"))
 STREAM_TIME_THRESHOLD = int(os.getenv("STREAM_TIME_THRESHOLD", "5"))
 
@@ -75,6 +81,9 @@ MERGE_SIMILARITY_THRESHOLD = float(os.getenv("MERGE_SIMILARITY_THRESHOLD", "0.35
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "Facenet512")
 MAX_EMBEDDINGS_PER_USER = int(os.getenv("MAX_EMBEDDINGS_PER_USER", "20"))
 _embeddings_lock = threading.Lock()
+# TensorFlow/Keras (DeepFace) is not safe for concurrent inference across threads; without
+# this, /identify + background stream can segfault or exit with no Python traceback.
+_deepface_lock = threading.Lock()
 
 # Redis (optional, used when STATE_BACKEND=redis)
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
@@ -121,6 +130,10 @@ _cap_lock = threading.Lock()
 _shutdown_event = threading.Event()
 
 
+def _empty_vision_state() -> dict:
+    return {"faces": [], "scene_caption": None, "location": None, "updated_at": None}
+
+
 # ── State (file-backed) ───────────────────────────────────────────────
 def _read_state_file() -> dict:
     if STATE_BACKEND == "redis" and _redis_client:
@@ -130,15 +143,18 @@ def _read_state_file() -> dict:
                 return json.loads(raw)
         except Exception:
             pass
-        return {"faces": [], "scene_caption": None, "updated_at": None}
+        return _empty_vision_state()
     p = Path(STATE_FILE)
     if not p.exists():
-        return {"faces": [], "scene_caption": None, "updated_at": None}
+        return _empty_vision_state()
     try:
-        return json.loads(p.read_text(encoding="utf-8"))
+        data = json.loads(p.read_text(encoding="utf-8"))
+        if "location" not in data:
+            data["location"] = None
+        return data
     except Exception as exc:
         log.warning("Failed to read state file: %s", exc)
-        return {"faces": [], "scene_caption": None, "updated_at": None}
+        return _empty_vision_state()
 
 
 def _write_state_file(data: dict):
@@ -325,13 +341,14 @@ def _identify_by_embedding(face_img: np.ndarray, add_if_unknown: bool = True, de
     if df is None:
         return "Unknown", 0.0
     try:
-        objs = df.represent(
-            img_path=face_img,
-            model_name=EMBEDDING_MODEL,
-            detector_backend=detector_backend,
-            enforce_detection=False,
-            align=True,
-        )
+        with _deepface_lock:
+            objs = df.represent(
+                img_path=face_img,
+                model_name=EMBEDDING_MODEL,
+                detector_backend=detector_backend,
+                enforce_detection=False,
+                align=True,
+            )
         if not objs or len(objs) == 0:
             return "Unknown", 0.0
         emb = np.array(objs[0]["embedding"], dtype=np.float64)
@@ -351,13 +368,14 @@ def _identify_all_faces(img: np.ndarray, add_if_unknown: bool = True, detector_b
     if df is None:
         return []
     try:
-        objs = df.represent(
-            img_path=img,
-            model_name=EMBEDDING_MODEL,
-            detector_backend=detector_backend,
-            enforce_detection=False,
-            align=True,
-        )
+        with _deepface_lock:
+            objs = df.represent(
+                img_path=img,
+                model_name=EMBEDDING_MODEL,
+                detector_backend=detector_backend,
+                enforce_detection=False,
+                align=True,
+            )
         if not objs or len(objs) == 0:
             return []
     except Exception as exc:
@@ -433,11 +451,15 @@ def _register_face_with_merge(name: str, emb: np.ndarray) -> dict:
 # ── Camera helpers ────────────────────────────────────────────────────
 def _open_camera() -> cv2.VideoCapture:
     cap = cv2.VideoCapture(CAM_INDEX, cv2.CAP_DSHOW)
+    if not cap.isOpened():
+        log.error("Failed to open camera at index %d — check CAM_INDEX and that no other process holds the device", CAM_INDEX)
+        return cap
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
     for _ in range(5):
         cap.read()
         time.sleep(0.02)
+    log.info("Camera opened: index=%d, %dx%d", CAM_INDEX, WIDTH, HEIGHT)
     return cap
 
 
@@ -453,12 +475,13 @@ def _grab_facial_areas(img: np.ndarray, detector_backend: str = "opencv", thresh
     if df is None:
         return []
     try:
-        face_objs = df.extract_faces(
-            img_path=img,
-            detector_backend=detector_backend,
-            expand_percentage=0,
-            enforce_detection=False,
-        )
+        with _deepface_lock:
+            face_objs = df.extract_faces(
+                img_path=img,
+                detector_backend=detector_backend,
+                expand_percentage=0,
+                enforce_detection=False,
+            )
         return [
             (int(f["facial_area"]["x"]), int(f["facial_area"]["y"]),
              int(f["facial_area"]["w"]), int(f["facial_area"]["h"]))
@@ -494,6 +517,13 @@ def _draw_overlay(img: np.ndarray, faces_data: list, countdown: Optional[str] = 
 
 def _deepface_stream_loop():
     """Run DeepFace stream logic: detect face 5 frames -> analyze -> show 5s -> save to JSON."""
+    try:
+        _deepface_stream_loop_inner()
+    except Exception:
+        log.exception("DeepFace stream loop crashed — no more frames will be produced")
+
+
+def _deepface_stream_loop_inner():
     df = _get_deepface()
     if df is None:
         log.warning("DeepFace stream disabled: DeepFace not available")
@@ -544,13 +574,14 @@ def _deepface_stream_loop():
                 # Demography
                 emotion, age, gender = "neutral", None, None
                 try:
-                    dem = df.analyze(
-                        detected_face,
-                        actions=("age", "gender", "emotion"),
-                        detector_backend="skip",
-                        enforce_detection=False,
-                        silent=True,
-                    )
+                    with _deepface_lock:
+                        dem = df.analyze(
+                            detected_face,
+                            actions=("age", "gender", "emotion"),
+                            detector_backend="skip",
+                            enforce_detection=False,
+                            silent=True,
+                        )
                     if dem and len(dem) > 0:
                         d = dem[0]
                         emotion = d.get("dominant_emotion", "neutral")
@@ -610,6 +641,13 @@ def _deepface_stream_loop():
 
 def _simple_capture_loop(fps: int = CAPTURE_FPS):
     """Original capture loop without DeepFace stream."""
+    try:
+        _simple_capture_loop_inner(fps)
+    except Exception:
+        log.exception("Simple capture loop crashed — no more frames will be produced")
+
+
+def _simple_capture_loop_inner(fps: int = CAPTURE_FPS):
     interval = 1.0 / fps
     while not _shutdown_event.is_set():
         with _cap_lock:
@@ -667,11 +705,134 @@ def _frame_diff(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.mean(cv2.absdiff(ga, gb)))
 
 
+def _parse_location_from_qr(raw: str) -> Optional[str]:
+    """Map QR payload to a single location string (plain text or small JSON)."""
+    if not raw or not isinstance(raw, str):
+        return None
+    text = raw.strip()
+    if not text:
+        return None
+    if text[0] in "{[":
+        try:
+            obj = json.loads(text)
+            if isinstance(obj, dict):
+                for key in ("location", "name", "place", "title", "label"):
+                    v = obj.get(key)
+                    if v is not None and str(v).strip():
+                        return str(v).strip()
+                return None
+            if isinstance(obj, str) and obj.strip():
+                return obj.strip()
+        except json.JSONDecodeError:
+            pass
+    return text
+
+
+def _scan_qr_all(bgr: np.ndarray) -> List[Tuple[str, Optional[np.ndarray]]]:
+    """
+    Decode all QR codes in frame. Each item is (raw_payload, corners) where corners
+    is (4, 2) float32 or None (for drawing on stream).
+    """
+    det = cv2.QRCodeDetector()
+    found: List[Tuple[str, Optional[np.ndarray]]] = []
+    try:
+        multi = getattr(det, "detectAndDecodeMulti", None)
+        if multi is not None:
+            ok, decoded, points, _ = multi(bgr)
+            if ok and decoded is not None:
+                if isinstance(decoded, str):
+                    dec_list: List[str] = [decoded] if decoded else []
+                else:
+                    dec_list = [str(s) for s in decoded if s]
+                if dec_list and points is not None and getattr(points, "size", 0) > 0:
+                    pts_arr = np.asarray(points, dtype=np.float32)
+                    if pts_arr.ndim == 3:
+                        for i, s in enumerate(dec_list):
+                            if not s:
+                                continue
+                            p = pts_arr[i] if i < pts_arr.shape[0] else None
+                            found.append((s, p))
+                    else:
+                        for s in dec_list:
+                            if s:
+                                found.append((s, None))
+                elif dec_list:
+                    for s in dec_list:
+                        if s:
+                            found.append((s, None))
+        if not found:
+            ok, decoded, points, _ = det.detectAndDecode(bgr)
+            if not ok or not decoded:
+                return []
+            pts = None
+            if points is not None and getattr(points, "size", 0) > 0:
+                pts = np.asarray(points, dtype=np.float32).reshape(-1, 2)
+            found.append((decoded, pts))
+    except Exception as exc:
+        log.debug("QR decode failed: %s", exc)
+    return found
+
+
+def _scan_qr_frame(bgr: np.ndarray) -> List[str]:
+    """Return raw decoded strings for all QR codes in frame (may be empty)."""
+    return [raw for raw, _ in _scan_qr_all(bgr)]
+
+
+def _persist_location_from_qr_hits(hits: List[Tuple[str, Optional[np.ndarray]]]) -> None:
+    """Write state.location from the first QR hit that parses as a location (sticky until replaced)."""
+    location_text: Optional[str] = None
+    for raw, _ in hits:
+        loc = _parse_location_from_qr(raw)
+        if loc:
+            location_text = loc
+            break
+    if location_text is None:
+        return
+    state = _read_state_file()
+    if state.get("location") != location_text:
+        state["location"] = location_text
+        _write_state_file(state)
+        log.info("Location from QR: %s", location_text)
+
+
+def _draw_qr_hits_on_bgr(vis: np.ndarray, hits: List[Tuple[str, Optional[np.ndarray]]]) -> None:
+    """Draw detection outline and label on BGR image (mutates vis)."""
+    for raw, pts in hits:
+        loc = _parse_location_from_qr(raw)
+        label = loc or (raw[:48] + "…" if len(raw) > 48 else raw)
+        if pts is not None and pts.size >= 8:
+            pi = pts.astype(np.int32).reshape(-1, 1, 2)
+            cv2.polylines(vis, [pi], True, (64, 255, 64), 2)
+            x, y = int(pi[0, 0, 0]), int(pi[0, 0, 1])
+            y = max(y - 8, 20)
+        else:
+            x, y = 12, 28
+        cv2.putText(vis, label, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 0, 0), 3, cv2.LINE_AA)
+        cv2.putText(vis, label, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (220, 255, 220), 1, cv2.LINE_AA)
+
+
+def _qr_scan_loop():
+    """Background: decode location from QR in the live frame; sticky until a new code appears."""
+    interval = max(QR_SCAN_INTERVAL, 0.2)
+    while not _shutdown_event.is_set():
+        try:
+            with _buf.lock:
+                frame = _buf.frame.copy() if _buf.frame is not None else None
+            if frame is not None:
+                hits = _scan_qr_all(frame)
+                _persist_location_from_qr_hits(hits)
+        except Exception:
+            log.exception("QR scan loop error")
+        time.sleep(interval)
+
+
 # ── Lifecycle ─────────────────────────────────────────────────────────
 @app.on_event("startup")
 def startup_event():
     global _cap
     _cap = _open_camera()
+    if not _cap.isOpened():
+        log.error("Camera unavailable at startup — frame buffer will be empty until /reopen succeeds")
     Path(FACES_DB_PATH).mkdir(parents=True, exist_ok=True)
     _get_deepface()
 
@@ -693,6 +854,16 @@ def startup_event():
         else:
             log.info("Change-detection push is disabled")
 
+    if QR_SCAN_ENABLED:
+        threading.Thread(target=_qr_scan_loop, daemon=True, name="qr-scan").start()
+        log.info(
+            "QR location scan enabled (interval=%.2fs, stream_overlay=%s)",
+            QR_SCAN_INTERVAL,
+            QR_STREAM_OVERLAY,
+        )
+    else:
+        log.info("QR location scan disabled")
+
     log.info("State: %s, file: %s, stream_faces: %s, embeddings: %s, stream_mode: %s",
              STATE_BACKEND, STATE_FILE, STREAM_FACE_FILE, EMBEDDINGS_PATH, DEEPFACE_STREAM)
 
@@ -710,14 +881,16 @@ def shutdown_event():
 # ── Vision state ──────────────────────────────────────────────────────
 @app.post("/state")
 def update_state(payload: dict = Body(...)):
-    """Write the latest vision state."""
-    _write_state_file(payload)
+    """Merge vision state from n8n (faces, scene_caption, etc.). Preserves keys omitted from payload (e.g. location)."""
+    data = _read_state_file()
+    data.update(payload)
+    _write_state_file(data)
     return {"ok": True}
 
 
 @app.get("/state")
 def get_state():
-    """Read the latest vision state (n8n/VLM combined: faces + scene_caption)."""
+    """Read the latest vision state (n8n/VLM combined: faces + scene_caption + location)."""
     state = _read_state_file()
     faces = state.get("faces") or []
     ctx = _build_personalization_context(faces)
@@ -873,13 +1046,14 @@ async def register_face(request: Request):
         )
 
     try:
-        objs = df.represent(
-            img_path=img,
-            model_name=EMBEDDING_MODEL,
-            detector_backend="opencv",
-            enforce_detection=False,
-            align=True,
-        )
+        with _deepface_lock:
+            objs = df.represent(
+                img_path=img,
+                model_name=EMBEDDING_MODEL,
+                detector_backend="opencv",
+                enforce_detection=False,
+                align=True,
+            )
     except Exception as e:
         log.warning("register-face represent failed: %s", e)
         return JSONResponse(
@@ -1013,10 +1187,10 @@ def snapshot(quality: int = Query(JPEG_QUALITY, ge=30, le=100)):
 
 @app.get("/stream")
 def stream(
-    fps: int = Query(10, ge=1, le=30),
+    fps: int = Query(60, ge=1, le=60),
     quality: int = Query(80, ge=30, le=100),
 ):
-    """MJPEG stream with DeepFace overlays. Open in browser: http://localhost:8089/stream"""
+    """MJPEG stream with DeepFace overlays; optional QR outline/label when QR_STREAM_OVERLAY=true."""
     return StreamingResponse(
         _mjpeg_generator(fps, quality),
         media_type="multipart/x-mixed-replace; boundary=frame",
@@ -1029,7 +1203,14 @@ def _mjpeg_generator(fps: int, quality: int):
         with _buf.lock:
             frame = _buf.frame
         if frame is not None:
-            jpg = _encode_jpeg(frame, quality)
+            to_encode = frame
+            if QR_SCAN_ENABLED:
+                hits = _scan_qr_all(frame)
+                _persist_location_from_qr_hits(hits)
+                if QR_STREAM_OVERLAY and hits:
+                    to_encode = frame.copy()
+                    _draw_qr_hits_on_bgr(to_encode, hits)
+            jpg = _encode_jpeg(to_encode, quality)
             if jpg:
                 yield (
                     b"--frame\r\n"

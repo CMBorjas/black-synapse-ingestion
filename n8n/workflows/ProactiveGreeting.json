@@ -92,7 +92,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "http://host.docker.internal:8001/play",
+        "url": "http://host.docker.internal:8001/play?epoch=0",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [

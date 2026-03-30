@@ -7,8 +7,9 @@ import sounddevice as sd
 import numpy as np
 import wave
 import time
+from pathlib import Path
+
 from openwakeword import Model
-import openwakeword
 
 SAMPLE_RATE = 16000
 # OpenWakeWord processes audio in chunks (typically 1280 samples = 80ms at 16kHz)
@@ -24,23 +25,32 @@ WAKE_WORD_THRESHOLD = 0.5
 # Cooldown period after detection (seconds) - prevents immediate re-detection
 COOLDOWN_SECONDS = 2.0
 
+# Local OpenWakeWord ONNX; prediction dict key is the stem (e.g. "Atlas").
+ATLAS_ONNX = Path(__file__).resolve().parent / "models" / "Atlas.onnx"
+
+
 def is_speech(frame, vad):
     return vad.is_speech(frame.tobytes(), SAMPLE_RATE)
+
+
+def _load_wake_model() -> Model:
+    if not ATLAS_ONNX.is_file():
+        raise FileNotFoundError(f"Wake word ONNX not found: {ATLAS_ONNX}")
+    return Model(
+        wakeword_models=[str(ATLAS_ONNX)],
+        inference_framework="onnx",
+    )
+
 
 def record_after_wake():
     oww_model = None
     stream = None
-    
-    try:
-        # Initialize OpenWakeWord model
-        openwakeword.utils.download_models()
+    wake_word_name = ATLAS_ONNX.stem
 
-        # Available models: "alexa", "hey_jarvis", "hey_mycroft", "hey_porcupine", "hey_rhasspy", "hey_spot", "hey_raven", "timer"
-        # Using "hey_jarvis" as it's closest to "Jarvis"
-        oww_model = Model(wakeword_models=["hey jarvis"],)
-        wake_word_name = "hey jarvis"
+    try:
+        oww_model = _load_wake_model()
     except Exception as e:
-        raise RuntimeError(f"OpenWakeWord initialization error: {e}")
+        raise RuntimeError(f"OpenWakeWord initialization error: {e}") from e
     
     vad = webrtcvad.Vad(2)
     # Use OpenWakeWord's recommended frame length for the stream
@@ -48,16 +58,22 @@ def record_after_wake():
     
     try:
         stream.start()
-        print("[Listening for wake word 'hey jarvis']")
+        print(f"[Listening for wake word '{wake_word_name}' ({ATLAS_ONNX.name})]")
         
         last_detection_time = 0.0  # Track when last wake word was detected
         cooldown_frames_to_flush = int(COOLDOWN_SECONDS * SAMPLE_RATE / OWW_FRAME_LENGTH)  # Frames to flush during cooldown
 
         while True:
             pcm = stream.read(OWW_FRAME_LENGTH)[0].flatten()
-            
+
             # Process audio through OpenWakeWord
-            prediction = oww_model.predict(pcm)
+            try:
+                prediction = oww_model.predict(pcm)
+            except MemoryError:
+                print("[MemoryError in wake word model — reinitializing...]")
+                oww_model = _load_wake_model()
+                prediction = {}
+                continue
             
             # Check if we're in cooldown period
             current_time = time.time()
@@ -112,6 +128,8 @@ def record_after_wake():
                 for _ in range(cooldown_frames_to_flush):
                     oww_model.predict(silence_frame)
                 
+                # Reinitialize model to clear accumulated internal buffers (prevents MemoryError on long runs)
+                oww_model = _load_wake_model()
                 print("[Resuming wake word detection...]\n")
                 # Continue listening for next wake word (don't break)
     finally:
