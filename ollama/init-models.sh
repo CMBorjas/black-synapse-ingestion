@@ -12,6 +12,7 @@ done
 
 echo "Ollama is ready! Pulling gemma3 model..."
 OLLAMA_HOST=$OLLAMA_HOST ollama pull qwen2.5:7b
+OLLAMA_HOST=$OLLAMA_HOST ollama pull moondream
 
 echo "Model gemma3 has been pulled successfully!"
 

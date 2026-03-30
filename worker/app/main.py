@@ -7,7 +7,7 @@ Handles ingestion, deduplication, chunking, and vector storage to power the robo
 
 import os
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -15,6 +15,9 @@ from dotenv import load_dotenv
 
 from .pipeline import IngestionPipeline
 from .utils import setup_logging
+from .scraper import scrape_url
+import uuid
+from datetime import datetime
 
 # Load environment variables
 load_dotenv()
@@ -54,6 +57,13 @@ class DocumentPayload(BaseModel):
     created_at: str = Field(..., description="Creation timestamp (ISO format)")
     updated_at: str = Field(..., description="Last update timestamp (ISO format)")
 
+class UserIngestRequest(BaseModel):
+    """Schema for user profile ingestion request."""
+    name: str = Field(..., description="Name of the user")
+    url: str = Field(None, description="URL to scrape for user info")
+    bio: str = Field(None, description="Directly provided biography or context")
+    scraping_consent: bool = Field(False, description="Explicit user consent to scrape the provided URL")
+
 class IngestionResponse(BaseModel):
     """Response model for ingestion operations."""
     success: bool
@@ -69,6 +79,22 @@ class SyncResponse(BaseModel):
     documents_processed: int = 0
     documents_deleted: int = 0
     errors: List[str] = []
+
+class ChatLogPayload(BaseModel):
+    """Schema for chat log ingestion."""
+    session_id: str = Field(..., description="Unique session identifier")
+    role: str = Field(..., description="Role of the message sender (user/assistant)")
+    message: str = Field(..., description="Content of the message")
+    timestamp: Optional[datetime] = Field(None, description="Timestamp of the message")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
+
+class ChatConsolidationResponse(BaseModel):
+    """Response model for chat consolidation."""
+    success: bool
+    processed_count: int
+    sessions_processed: int
+    message: str
+    error: str = None
 
 @app.get("/")
 async def root():
@@ -212,6 +238,138 @@ async def sync_data_source(
         logger.error(f"Sync failed for source {source}: {e}")
         raise HTTPException(status_code=500, detail=f"Sync failed: {str(e)}")
 
+@app.post("/ingest/user", response_model=IngestionResponse)
+async def ingest_user_profile(
+    request: UserIngestRequest,
+    background_tasks: BackgroundTasks
+):
+    """
+    Ingest a user profile.
+    
+    Combines provided bio and scraped content (if URL provided and consent given).
+    """
+    try:
+        # Validate consent if URL is provided
+        if request.url and not request.scraping_consent:
+            raise HTTPException(
+                status_code=400, 
+                detail="scraping_consent must be True when providing a URL"
+            )
+            
+        content_parts = []
+        if request.bio:
+            content_parts.append(f"Bio: {request.bio}")
+            
+        if request.url:
+            logger.info(f"Scraping user profile from {request.url}")
+            scraped_content = scrape_url(request.url)
+            if scraped_content:
+                content_parts.append(f"Scraped Content from {request.url}:\n{scraped_content}")
+            else:
+                logger.warning(f"Failed to scrape content from {request.url}")
+                # We continue even if scraping fails, as long as we have valid request
+        
+        full_text = "\n\n".join(content_parts)
+        
+        if not full_text:
+            raise HTTPException(status_code=400, detail="No content provided (bio or valid URL required)")
+            
+        doc_id = f"user_{request.name.lower().replace(' ', '_')}"
+        now = datetime.utcnow().isoformat()
+        
+        document = DocumentPayload(
+            doc_id=doc_id,
+            source="user_profile",
+            title=f"User Profile: {request.name}",
+            uri=request.url or f"user://{doc_id}",
+            text=full_text,
+            author="system",
+            created_at=now,
+            updated_at=now
+        )
+        
+        logger.info(f"Processing user profile: {doc_id}")
+        result = await pipeline.process_document(document)
+        
+        if result["success"]:
+            return IngestionResponse(
+                success=True,
+                message="User profile processed successfully",
+                doc_id=doc_id,
+                chunks_processed=result["chunks_processed"]
+            )
+        else:
+            return IngestionResponse(
+                success=False,
+                message="User profile processing failed",
+                doc_id=doc_id,
+                error=result["error"]
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error processing user profile {request.name}: {e}")
+        raise HTTPException(status_code=500, detail=f"Processing failed: {str(e)}")
+
+@app.post("/chat/log", response_model=IngestionResponse)
+async def log_chat(
+    payload: ChatLogPayload,
+    background_tasks: BackgroundTasks
+):
+    """
+    Log a chat message to the database for future memory consolidation.
+    """
+    try:
+        success = await pipeline.log_chat_message(
+            session_id=payload.session_id,
+            role=payload.role,
+            message=payload.message,
+            meta=payload.metadata
+        )
+        
+        if success:
+            return IngestionResponse(
+                success=True,
+                message="Chat message logged successfully",
+                doc_id=payload.session_id # Using session_id as doc_id reference
+            )
+        else:
+            raise HTTPException(status_code=500, detail="Failed to log chat message")
+            
+    except Exception as e:
+        logger.error(f"Error logging chat message: {e}")
+        raise HTTPException(status_code=500, detail=f"Logging failed: {str(e)}")
+
+@app.post("/chat/memory/consolidate", response_model=ChatConsolidationResponse)
+async def consolidate_memory(
+    background_tasks: BackgroundTasks
+):
+    """
+    Trigger consolidation of chat logs into long-term vector memory.
+    """
+    try:
+        result = await pipeline.consolidate_chat_memory()
+        
+        if "error" in result:
+            return ChatConsolidationResponse(
+                success=False,
+                processed_count=0,
+                sessions_processed=0,
+                message="Consolidation failed",
+                error=result["error"]
+            )
+            
+        return ChatConsolidationResponse(
+            success=True,
+            processed_count=result["processed_count"],
+            sessions_processed=result["sessions_processed"],
+            message=result["message"]
+        )
+            
+    except Exception as e:
+        logger.error(f"Error eliminating chat memory: {e}")
+        raise HTTPException(status_code=500, detail=f"Consolidation failed: {str(e)}")
 if __name__ == "__main__":
     import uvicorn
     

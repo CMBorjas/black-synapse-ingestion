@@ -18,6 +18,7 @@ from datetime import datetime
 import json
 
 import openai
+import httpx
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
 import psycopg2
@@ -33,7 +34,11 @@ class IngestionPipeline:
     
     def __init__(self):
         """Initialize the ingestion pipeline with database connections."""
-        self.openai_client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        # Create an httpx client explicitly and pass it to OpenAI to avoid
+        # compatibility issues between openai library's expected httpx kwargs
+        # and the httpx version provided in the image.
+        httpx_client = httpx.Client()
+        self.openai_client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"), http_client=httpx_client)
         self.qdrant_client = QdrantClient(url=os.getenv("QDRANT_URL"))
         self.postgres_url = os.getenv("POSTGRES_URL")
         
@@ -42,6 +47,30 @@ class IngestionPipeline:
         
         # Collection name for Qdrant
         self.collection_name = "atlasai_documents"
+        self.chat_collection_name = "atlasai_chat_memory"
+        
+        #Embedding model and vector dimension (configurable via env)
+        # Supported models:
+        # - text-embedding-3-small => 1536 dims (default)
+        # - text-embedding-3-large => 3072 dims
+        self.embedding_model = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
+        # Allow explicit override of embedding dimension if necessary
+        model_dim_override = os.getenv("EMBEDDING_DIM")
+        if model_dim_override:
+            try:
+                self.embedding_dim = int(model_dim_override)
+            except ValueError:
+                logger.warning("Invalid EMBEDDING_DIM value '%s', falling back to model default", model_dim_override)
+                self.embedding_dim = 1536
+        else:
+            # Map common model names to dimensions
+            if self.embedding_model == "text-embedding-3-large":
+                self.embedding_dim = 3072
+            else:
+                # Default to small model dims
+                self.embedding_dim = 1536
+        logger.info(f"Using embedding model: %s (dim=%d)", self.embedding_model, self.embedding_dim)
+
         
         # Initialize collections and database
         asyncio.create_task(self._initialize())
@@ -62,24 +91,49 @@ class IngestionPipeline:
     
     async def _ensure_qdrant_collection(self):
         """Ensure Qdrant collection exists with proper configuration."""
-        try:
-            collections = self.qdrant_client.get_collections()
-            collection_names = [col.name for col in collections.collections]
-            
-            if self.collection_name not in collection_names:
-                self.qdrant_client.create_collection(
-                    collection_name=self.collection_name,
-                    vectors_config=VectorParams(
-                        size=1536,  # text-embedding-3-small dimension
-                        distance=Distance.COSINE
+        # Retry loop: Qdrant may not be ready when the worker container starts.
+        max_attempts = 10
+        delay = 1
+        for attempt in range(1, max_attempts + 1):
+            try:
+                collections = self.qdrant_client.get_collections()
+                collection_names = [col.name for col in collections.collections]
+
+                if self.collection_name not in collection_names:
+                    self.qdrant_client.create_collection(
+                        collection_name=self.collection_name,
+                        vectors_config=VectorParams(
+                            size=self.embedding_dim,
+                            distance=Distance.COSINE
+                        )
                     )
-                )
-                logger.info(f"Created Qdrant collection: {self.collection_name}")
-            else:
-                logger.info(f"Qdrant collection already exists: {self.collection_name}")
-        except Exception as e:
-            logger.error(f"Failed to ensure Qdrant collection: {e}")
-            raise
+                    logger.info(f"Created Qdrant collection: {self.collection_name}")
+                else:
+                    logger.info(f"Qdrant collection already exists: {self.collection_name}")
+
+                if self.chat_collection_name not in collection_names:
+                    self.qdrant_client.create_collection(
+                        collection_name=self.chat_collection_name,
+                        vectors_config=VectorParams(
+                            size=self.embedding_dim,
+                            distance=Distance.COSINE
+                        )
+                    )
+                    logger.info(f"Created Qdrant chat collection: {self.chat_collection_name}")
+                else:
+                    logger.info(f"Qdrant chat collection already exists: {self.chat_collection_name}")
+
+                # Success - exit retry loop
+                return
+
+            except Exception as e:
+                logger.warning(f"Attempt {attempt}/{max_attempts} - failed to contact Qdrant: {e}")
+                if attempt == max_attempts:
+                    logger.error(f"Failed to ensure Qdrant collection after {max_attempts} attempts: {e}")
+                    raise
+                # Exponential backoff with cap
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, 10)
     
     async def _ensure_postgres_tables(self):
         """Ensure Postgres tables exist with proper schema."""
@@ -103,6 +157,8 @@ class IngestionPipeline:
                         )
                     """)
                     
+
+                    
                     # Create ingestion_log table
                     cur.execute("""
                         CREATE TABLE IF NOT EXISTS ingestion_log (
@@ -114,6 +170,19 @@ class IngestionPipeline:
                             metadata JSONB
                         )
                     """)
+
+                    # Create chat_logs table
+                    cur.execute("""
+                        CREATE TABLE IF NOT EXISTS chat_logs (
+                            id SERIAL PRIMARY KEY,
+                            session_id VARCHAR(255) NOT NULL,
+                            role VARCHAR(50) NOT NULL,
+                            message TEXT NOT NULL,
+                            timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                            is_indexed BOOLEAN DEFAULT FALSE,
+                            metadata JSONB
+                        )
+                    """)
                     
                     # Create indexes
                     cur.execute("CREATE INDEX IF NOT EXISTS idx_documents_source ON documents(source)")
@@ -121,6 +190,10 @@ class IngestionPipeline:
                     cur.execute("CREATE INDEX IF NOT EXISTS idx_documents_processed_at ON documents(processed_at)")
                     cur.execute("CREATE INDEX IF NOT EXISTS idx_ingestion_log_doc_id ON ingestion_log(doc_id)")
                     cur.execute("CREATE INDEX IF NOT EXISTS idx_ingestion_log_timestamp ON ingestion_log(timestamp)")
+                    
+                    cur.execute("CREATE INDEX IF NOT EXISTS idx_chat_logs_session_id ON chat_logs(session_id)")
+                    cur.execute("CREATE INDEX IF NOT EXISTS idx_chat_logs_timestamp ON chat_logs(timestamp)")
+                    cur.execute("CREATE INDEX IF NOT EXISTS idx_chat_logs_is_indexed ON chat_logs(is_indexed)")
                     
                     conn.commit()
                     logger.info("Postgres tables ensured successfully")
@@ -215,9 +288,9 @@ class IngestionPipeline:
             chunks = chunk_text(document.text, self.tokenizer)
             logger.info(f"Chunked document {document.doc_id} into {len(chunks)} chunks")
             
-            # Generate embeddings for all chunks
+            # Generate embeddings for all chunks (use configured model)
             chunk_texts = [chunk["text"] for chunk in chunks]
-            embeddings = await get_embedding(chunk_texts, self.openai_client)
+            embeddings = await get_embedding(chunk_texts, self.openai_client, model=self.embedding_model)
             
             # Prepare points for Qdrant
             points = []
@@ -382,3 +455,124 @@ class IngestionPipeline:
                 "documents_deleted": 0,
                 "errors": [str(e)]
             }
+
+    async def log_chat_message(self, session_id: str, role: str, message: str, meta: Dict = None) -> bool:
+        """Log a chat message to Postgres."""
+        try:
+            with psycopg2.connect(self.postgres_url) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        INSERT INTO chat_logs (session_id, role, message, metadata)
+                        VALUES (%s, %s, %s, %s)
+                    """, (session_id, role, message, json.dumps(meta or {})))
+                    conn.commit()
+            return True
+        except Exception as e:
+            logger.error(f"Failed to log chat message: {e}")
+            return False
+
+    async def consolidate_chat_memory(self) -> Dict[str, Any]:
+        """
+        Consolidate unindexed chat logs into long-term vector memory.
+        Groups logs by session and chunks them for storage in Qdrant.
+        """
+        try:
+            processed_count = 0
+            sessions_processed = 0
+            
+            # Fetch unindexed logs
+            with psycopg2.connect(self.postgres_url) as conn:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute("""
+                        SELECT id, session_id, role, message, timestamp 
+                        FROM chat_logs 
+                        WHERE is_indexed = FALSE
+                        ORDER BY session_id, timestamp ASC
+                    """)
+                    logs = cur.fetchall()
+            
+            if not logs:
+                return {"processed_count": 0, "sessions_processed": 0, "message": "No new logs to consolidate"}
+
+            # Group by session
+            sessions = {}
+            for log in logs:
+                sid = log['session_id']
+                if sid not in sessions:
+                    sessions[sid] = []
+                sessions[sid].append(log)
+            
+            # Process each session
+            ids_to_mark_indexed = []
+            
+            for sid, session_logs in sessions.items():
+                # Format conversation text
+                # We can group them into chunks of N messages or by token count. 
+                # For simplicity, let's treat the batch of unindexed logs for this session as a conceptual "update"
+                # but in reality we might want to fetch context. 
+                # Implementation choice provided in plan: Chunk/Format text.
+                
+                # Simple formatting: "Role: Message"
+                full_text = "\n".join([f"{l['role'].title()}: {l['message']}" for l in session_logs])
+                
+                # Check if enough content to matter
+                if not full_text.strip():
+                    continue
+
+                # Chunk the text
+                chunks = chunk_text(full_text, self.tokenizer)
+                
+                # Generate embeddings
+                chunk_texts = [chunk["text"] for chunk in chunks]
+                embeddings = await get_embedding(chunk_texts, self.openai_client, model=self.embedding_model)
+                
+                # Prepare points
+                points = []
+                for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
+                    # Create a unique ID for the vector point based on the last log ID involved or a UUID
+                    # Using a UUID to avoid collisions
+                    point_id = str(uuid.uuid4())
+                    
+                    points.append(PointStruct(
+                        id=point_id,
+                        vector=embedding,
+                        payload={
+                            "session_id": sid,
+                            "text": chunk["text"],
+                            "timestamp_start": session_logs[0]['timestamp'].isoformat(),
+                            "timestamp_end": session_logs[-1]['timestamp'].isoformat(),
+                            "log_ids": [l['id'] for l in session_logs], # Traceability
+                            "type": "chat_memory"
+                        }
+                    ))
+                
+                # Upsert to Qdrant
+                if points:
+                    self.qdrant_client.upsert(
+                        collection_name=self.chat_collection_name,
+                        points=points
+                    )
+                    processed_count += len(session_logs)
+                    sessions_processed += 1
+                    ids_to_mark_indexed.extend([l['id'] for l in session_logs])
+
+            # Mark logs as indexed
+            if ids_to_mark_indexed:
+                with psycopg2.connect(self.postgres_url) as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("""
+                            UPDATE chat_logs 
+                            SET is_indexed = TRUE 
+                            WHERE id = ANY(%s)
+                        """, (ids_to_mark_indexed,))
+                        conn.commit()
+
+            return {
+                "processed_count": processed_count, 
+                "sessions_processed": sessions_processed,
+                "message": f"Consolidated {processed_count} messages from {sessions_processed} sessions"
+            }
+
+        except Exception as e:
+            logger.error(f"Chat memory consolidation failed: {e}")
+            return {"error": str(e)}

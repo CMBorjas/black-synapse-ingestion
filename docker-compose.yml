@@ -4,12 +4,12 @@ services:
     restart: unless-stopped
     command: redis-server --save "" --appendonly no
     ports:
-      - "6379:6379"   
+      - "6379:6379"
 
   n8n:
     image: n8nio/n8n:latest
     ports:
-      - "5678:5678"   
+      - "5678:5678"
     environment:
       - N8N_ENCRYPTION_KEY=CHANGE_ME_LONG_RANDOM
       - N8N_DIAGNOSTICS_ENABLED=false
@@ -60,8 +60,18 @@ services:
     image: qdrant/qdrant:latest
     ports:
       - "6333:6333"
+      - "6334:6334" # gRPC
     volumes:
       - qdrant_data:/qdrant/storage
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:6333/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    ulimits:
+      nofile: 262144
 
   ollama:
     image: ollama/ollama:latest
@@ -77,7 +87,7 @@ services:
               count: all
               capabilities: [gpu]
     healthcheck:
-      test: ["CMD", "ollama", "list"]
+      test: [ "CMD", "ollama", "list" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -90,7 +100,7 @@ services:
       - ./ollama/init-models.sh:/init-models.sh
     environment:
       - OLLAMA_HOST=ollama:11434
-    entrypoint: ["/bin/bash", "/init-models.sh"]
+    entrypoint: [ "/bin/bash", "/init-models.sh" ]
     depends_on:
       ollama:
         condition: service_healthy
