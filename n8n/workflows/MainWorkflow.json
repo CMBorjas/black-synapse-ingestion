@@ -141,7 +141,7 @@
     },
     {
       "parameters": {
-        "model": "embeddinggemma:latest"
+        "model": "qwen2.5:7b"
       },
       "type": "@n8n/n8n-nodes-langchain.embeddingsOllama",
       "typeVersion": 1,

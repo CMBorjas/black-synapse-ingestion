@@ -9,7 +9,7 @@ import os
 import asyncio
 from typing import List, Dict, Any
 import tiktoken
-import openai
+import httpx
 import numpy as np
 
 def setup_logging():
@@ -93,14 +93,14 @@ def chunk_text(text: str, tokenizer: tiktoken.Encoding,
     
     return chunks
 
-async def get_embedding(texts: List[str], openai_client: openai.OpenAI, 
-                       model: str = "text-embedding-3-small") -> List[List[float]]:
+async def get_embedding(texts: List[str], ollama_host: str = "http://ollama:11434", 
+                       model: str = "qwen2.5:7b") -> List[List[float]]:
     """
-    Generate embeddings for a list of texts using OpenAI's embedding API.
+    Generate embeddings natively using Ollama's HTTP API.
     
     Args:
         texts: List of texts to embed
-        openai_client: OpenAI client instance
+        ollama_host: URL of the Ollama server
         model: Embedding model to use
         
     Returns:
@@ -108,22 +108,20 @@ async def get_embedding(texts: List[str], openai_client: openai.OpenAI,
     """
     if not texts:
         return []
-    
+        
     try:
-        # OpenAI API supports batching, so we can process all texts at once
-        response = await asyncio.to_thread(
-            openai_client.embeddings.create,
-            model=model,
-            input=texts
-        )
-        
-        # Extract embeddings from response
-        embeddings = [data.embedding for data in response.data]
-        
-        return embeddings
-        
+        url = f"{ollama_host}/api/embed"
+        payload = {
+            "model": model,
+            "input": texts
+        }
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            response = await client.post(url, json=payload)
+            response.raise_for_status()
+            data = response.json()
+            return data.get("embeddings", [])
     except Exception as e:
-        logging.error(f"Failed to generate embeddings: {e}")
+        logging.error(f"Failed to generate embeddings via Ollama: {e}")
         raise
 
 def validate_document_payload(payload: Dict[str, Any]) -> List[str]:

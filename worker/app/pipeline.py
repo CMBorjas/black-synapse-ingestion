@@ -17,7 +17,7 @@ from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime
 import json
 
-import openai
+# Removed openai dependency
 import httpx
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
@@ -37,8 +37,7 @@ class IngestionPipeline:
         # Create an httpx client explicitly and pass it to OpenAI to avoid
         # compatibility issues between openai library's expected httpx kwargs
         # and the httpx version provided in the image.
-        httpx_client = httpx.Client()
-        self.openai_client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"), http_client=httpx_client)
+        self.ollama_host = os.getenv("OLLAMA_URL", "http://ollama:11434")
         self.qdrant_client = QdrantClient(url=os.getenv("QDRANT_URL"))
         self.postgres_url = os.getenv("POSTGRES_URL")
         
@@ -53,7 +52,7 @@ class IngestionPipeline:
         # Supported models:
         # - text-embedding-3-small => 1536 dims (default)
         # - text-embedding-3-large => 3072 dims
-        self.embedding_model = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
+        self.embedding_model = os.getenv("EMBEDDING_MODEL", "qwen2.5:7b")
         # Allow explicit override of embedding dimension if necessary
         model_dim_override = os.getenv("EMBEDDING_DIM")
         if model_dim_override:
@@ -61,14 +60,14 @@ class IngestionPipeline:
                 self.embedding_dim = int(model_dim_override)
             except ValueError:
                 logger.warning("Invalid EMBEDDING_DIM value '%s', falling back to model default", model_dim_override)
-                self.embedding_dim = 1536
+                self.embedding_dim = 3584 # Default for qwen2.5:7b
         else:
             # Map common model names to dimensions
-            if self.embedding_model == "text-embedding-3-large":
-                self.embedding_dim = 3072
+            if self.embedding_model == "nomic-embed-text":
+                self.embedding_dim = 768
             else:
-                # Default to small model dims
-                self.embedding_dim = 1536
+                # Default to qwen dims
+                self.embedding_dim = 3584
         logger.info(f"Using embedding model: %s (dim=%d)", self.embedding_model, self.embedding_dim)
 
         
@@ -290,7 +289,7 @@ class IngestionPipeline:
             
             # Generate embeddings for all chunks (use configured model)
             chunk_texts = [chunk["text"] for chunk in chunks]
-            embeddings = await get_embedding(chunk_texts, self.openai_client, model=self.embedding_model)
+            embeddings = await get_embedding(chunk_texts, self.ollama_host, model=self.embedding_model)
             
             # Prepare points for Qdrant
             points = []
@@ -473,8 +472,8 @@ class IngestionPipeline:
 
     async def consolidate_chat_memory(self) -> Dict[str, Any]:
         """
-        Consolidate unindexed chat logs into long-term vector memory.
-        Groups logs by session and chunks them for storage in Qdrant.
+        Consolidate chat logs into hierarchical memory (Day -> Hour -> Conversation).
+        Fetches unindexed logs, pulls recent contextual history, and embeds them.
         """
         try:
             processed_count = 0
@@ -489,72 +488,94 @@ class IngestionPipeline:
                         WHERE is_indexed = FALSE
                         ORDER BY session_id, timestamp ASC
                     """)
-                    logs = cur.fetchall()
+                    unindexed_logs = cur.fetchall()
             
-            if not logs:
+            if not unindexed_logs:
                 return {"processed_count": 0, "sessions_processed": 0, "message": "No new logs to consolidate"}
 
-            # Group by session
+            # Group logs hierarchically: session_id -> date -> hour -> logs
             sessions = {}
-            for log in logs:
+            for log in unindexed_logs:
                 sid = log['session_id']
                 if sid not in sessions:
                     sessions[sid] = []
                 sessions[sid].append(log)
             
-            # Process each session
             ids_to_mark_indexed = []
             
-            for sid, session_logs in sessions.items():
-                # Format conversation text
-                # We can group them into chunks of N messages or by token count. 
-                # For simplicity, let's treat the batch of unindexed logs for this session as a conceptual "update"
-                # but in reality we might want to fetch context. 
-                # Implementation choice provided in plan: Chunk/Format text.
-                
-                # Simple formatting: "Role: Message"
-                full_text = "\n".join([f"{l['role'].title()}: {l['message']}" for l in session_logs])
-                
-                # Check if enough content to matter
-                if not full_text.strip():
+            for sid, unindexed_session_logs in sessions.items():
+                if not unindexed_session_logs:
                     continue
-
-                # Chunk the text
-                chunks = chunk_text(full_text, self.tokenizer)
-                
-                # Generate embeddings
-                chunk_texts = [chunk["text"] for chunk in chunks]
-                embeddings = await get_embedding(chunk_texts, self.openai_client, model=self.embedding_model)
-                
-                # Prepare points
-                points = []
-                for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
-                    # Create a unique ID for the vector point based on the last log ID involved or a UUID
-                    # Using a UUID to avoid collisions
-                    point_id = str(uuid.uuid4())
                     
-                    points.append(PointStruct(
-                        id=point_id,
-                        vector=embedding,
-                        payload={
-                            "session_id": sid,
-                            "text": chunk["text"],
-                            "timestamp_start": session_logs[0]['timestamp'].isoformat(),
-                            "timestamp_end": session_logs[-1]['timestamp'].isoformat(),
-                            "log_ids": [l['id'] for l in session_logs], # Traceability
-                            "type": "chat_memory"
-                        }
-                    ))
+                # We group the unindexed logs by Day and Hour to create chunks
+                time_buckets = {}
+                for log in unindexed_session_logs:
+                    day = log['timestamp'].strftime('%Y-%m-%d')
+                    hour = log['timestamp'].strftime('%H:00')
+                    bucket_key = (day, hour)
+                    if bucket_key not in time_buckets:
+                        time_buckets[bucket_key] = []
+                    time_buckets[bucket_key].append(log)
+                    
+                for (day, hour), bucket_logs in time_buckets.items():
+                    # For this bucket of unindexed logs, fetch context from database 
+                    # up to the latest timestamp in the bucket, for this session
+                    latest_timestamp = bucket_logs[-1]['timestamp']
+                    
+                    with psycopg2.connect(self.postgres_url) as conn:
+                        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                            cur.execute("""
+                                SELECT id, role, message, timestamp 
+                                FROM chat_logs 
+                                WHERE session_id = %s AND timestamp <= %s
+                                ORDER BY timestamp DESC
+                                LIMIT 15
+                            """, (sid, latest_timestamp))
+                            context_logs = cur.fetchall()
+                            context_logs.reverse() # chronological order
+                            
+                    full_text = "\n".join([f"[{l['timestamp'].strftime('%Y-%m-%d %H:%M')}] {l['role'].title()}: {l['message']}" for l in context_logs])
+                    
+                    if not full_text.strip():
+                        continue
+
+                    # Chunk the text
+                    chunks = chunk_text(full_text, self.tokenizer)
+                    chunk_texts = [chunk["text"] for chunk in chunks]
+                    
+                    # Generate embeddings via Ollama
+                    embeddings = await get_embedding(chunk_texts, self.ollama_host, model=self.embedding_model)
+                    
+                    # Prepare Qdrant points
+                    points = []
+                    for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
+                        import uuid
+                        point_id = str(uuid.uuid4())
+                        points.append(PointStruct(
+                            id=point_id,
+                            vector=embedding,
+                            payload={
+                                "session_id": sid,
+                                "day": day,
+                                "hour": hour,
+                                "text": chunk["text"],
+                                "timestamp_start": context_logs[0]['timestamp'].isoformat(),
+                                "timestamp_end": context_logs[-1]['timestamp'].isoformat(),
+                                "log_ids": [l['id'] for l in bucket_logs], # Only track the newly indexed ones
+                                "type": "chat_memory_hierarchy"
+                            }
+                        ))
+                    
+                    if points:
+                        self.qdrant_client.upsert(
+                            collection_name=self.chat_collection_name,
+                            points=points
+                        )
+                    
+                    processed_count += len(bucket_logs)
+                    ids_to_mark_indexed.extend([l['id'] for l in bucket_logs])
                 
-                # Upsert to Qdrant
-                if points:
-                    self.qdrant_client.upsert(
-                        collection_name=self.chat_collection_name,
-                        points=points
-                    )
-                    processed_count += len(session_logs)
-                    sessions_processed += 1
-                    ids_to_mark_indexed.extend([l['id'] for l in session_logs])
+                sessions_processed += 1
 
             # Mark logs as indexed
             if ids_to_mark_indexed:
@@ -570,7 +591,7 @@ class IngestionPipeline:
             return {
                 "processed_count": processed_count, 
                 "sessions_processed": sessions_processed,
-                "message": f"Consolidated {processed_count} messages from {sessions_processed} sessions"
+                "message": f"Consolidated {processed_count} messages into hierarchical blocks from {sessions_processed} sessions"
             }
 
         except Exception as e:

@@ -58,9 +58,9 @@ services:
 
   qdrant:
     image: qdrant/qdrant:latest
-    ports:
-      - "6333:6333"
-      - "6334:6334" # gRPC
+#    ports:
+#      - "6333:6333"
+#      - "6334:6334" # gRPC
     volumes:
       - qdrant_data:/qdrant/storage
     restart: unless-stopped
@@ -75,8 +75,8 @@ services:
 
   ollama:
     image: ollama/ollama:latest
-    ports:
-      - "11434:11434"
+#    ports:
+#      - "11434:11434"
     volumes:
       - ollama_data:/root/.ollama
     healthcheck:
@@ -133,8 +133,8 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_DB=atlasai
-    ports:
-      - "5433:5432"
+#    ports:
+#      - "5433:5432"
     volumes:
       - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     restart: unless-stopped
@@ -144,7 +144,7 @@ services:
       context: ./worker
       dockerfile: Dockerfile
     ports:
-      - "8000:8000"
+      - "8009:8000"
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - QDRANT_URL=http://qdrant:6333

@@ -5,7 +5,7 @@ import uuid
 import time
 from datetime import datetime
 
-BASE_URL = "http://localhost:8001"
+BASE_URL = "http://localhost:8009"
 
 def test_chat_log_and_consolidate():
     # 1. Log a chat message

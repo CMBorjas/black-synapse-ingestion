@@ -10,9 +10,9 @@ until OLLAMA_HOST=$OLLAMA_HOST ollama list > /dev/null 2>&1; do
   sleep 2
 done
 
-echo "Ollama is ready! Pulling gemma3 model..."
+echo "Ollama is ready! Pulling models (qwen2.5:7b, moondream)..."
 OLLAMA_HOST=$OLLAMA_HOST ollama pull qwen2.5:7b
 OLLAMA_HOST=$OLLAMA_HOST ollama pull moondream
 
-echo "Model gemma3 has been pulled successfully!"
+echo "Models pulled successfully!"
 
