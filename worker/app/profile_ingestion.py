@@ -149,8 +149,12 @@ async def ingest_profile(json_path: str):
     pipeline = IngestionPipeline()
     
     # Process
-    print("Ingesting document...")
-    result = await pipeline.process_document(payload, force_reindex=True)
+    print("Ingesting document into profile collection...")
+    result = await pipeline.process_document(
+        payload, 
+        force_reindex=True, 
+        collection_override=pipeline.profile_collection_name
+    )
     
     if result["success"]:
         print(f"\n✅ SUCCESS: Profile ingested successfully.")

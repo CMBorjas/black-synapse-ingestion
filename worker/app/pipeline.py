@@ -47,6 +47,7 @@ class IngestionPipeline:
         # Collection name for Qdrant
         self.collection_name = "atlasai_documents"
         self.chat_collection_name = "atlasai_chat_memory"
+        self.profile_collection_name = "atlasai_profiles"
         
         #Embedding model and vector dimension (configurable via env)
         # Supported models:
@@ -121,6 +122,18 @@ class IngestionPipeline:
                     logger.info(f"Created Qdrant chat collection: {self.chat_collection_name}")
                 else:
                     logger.info(f"Qdrant chat collection already exists: {self.chat_collection_name}")
+
+                if self.profile_collection_name not in collection_names:
+                    self.qdrant_client.create_collection(
+                        collection_name=self.profile_collection_name,
+                        vectors_config=VectorParams(
+                            size=self.embedding_dim,
+                            distance=Distance.COSINE
+                        )
+                    )
+                    logger.info(f"Created Qdrant profile collection: {self.profile_collection_name}")
+                else:
+                    logger.info(f"Qdrant profile collection already exists: {self.profile_collection_name}")
 
                 # Success - exit retry loop
                 return
@@ -255,13 +268,14 @@ class IngestionPipeline:
         except Exception as e:
             logger.error(f"Failed to log ingestion event: {e}")
     
-    async def process_document(self, document: Any, force_reindex: bool = False) -> Dict[str, Any]:
+    async def process_document(self, document: Any, force_reindex: bool = False, collection_override: Optional[str] = None) -> Dict[str, Any]:
         """
         Process a single document through the ingestion pipeline.
         
         Args:
             document: DocumentPayload object
             force_reindex: If True, process even if content hasn't changed
+            collection_override: Optional name of collection to use instead of default
             
         Returns:
             Dict with success status, chunks processed, and any errors
@@ -312,8 +326,9 @@ class IngestionPipeline:
                 points.append(point)
             
             # Upsert to Qdrant
+            target_collection = collection_override if collection_override else self.collection_name
             self.qdrant_client.upsert(
-                collection_name=self.collection_name,
+                collection_name=target_collection,
                 points=points
             )
             
