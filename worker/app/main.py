@@ -96,6 +96,21 @@ class QRAnalyzeResponse(BaseModel):
     qr_codes_found: int
     results: List[QRCodeResult]
     message: str
+class ChatLogPayload(BaseModel):
+    """Schema for chat log ingestion."""
+    session_id: str = Field(..., description="Unique session identifier")
+    role: str = Field(..., description="Role of the message sender (user/assistant)")
+    message: str = Field(..., description="Content of the message")
+    timestamp: Optional[datetime] = Field(None, description="Timestamp of the message")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
+
+class ChatConsolidationResponse(BaseModel):
+    """Response model for chat consolidation."""
+    success: bool
+    processed_count: int
+    sessions_processed: int
+    message: str
+    error: str = None
 
 @app.get("/")
 async def root():
@@ -426,6 +441,64 @@ async def analyze_qr_code(
     )
 
 
+@app.post("/chat/log", response_model=IngestionResponse)
+async def log_chat(
+    payload: ChatLogPayload,
+    background_tasks: BackgroundTasks
+):
+    """
+    Log a chat message to the database for future memory consolidation.
+    """
+    try:
+        success = await pipeline.log_chat_message(
+            session_id=payload.session_id,
+            role=payload.role,
+            message=payload.message,
+            meta=payload.metadata
+        )
+        
+        if success:
+            return IngestionResponse(
+                success=True,
+                message="Chat message logged successfully",
+                doc_id=payload.session_id # Using session_id as doc_id reference
+            )
+        else:
+            raise HTTPException(status_code=500, detail="Failed to log chat message")
+            
+    except Exception as e:
+        logger.error(f"Error logging chat message: {e}")
+        raise HTTPException(status_code=500, detail=f"Logging failed: {str(e)}")
+
+@app.post("/chat/memory/consolidate", response_model=ChatConsolidationResponse)
+async def consolidate_memory(
+    background_tasks: BackgroundTasks
+):
+    """
+    Trigger consolidation of chat logs into long-term vector memory.
+    """
+    try:
+        result = await pipeline.consolidate_chat_memory()
+        
+        if "error" in result:
+            return ChatConsolidationResponse(
+                success=False,
+                processed_count=0,
+                sessions_processed=0,
+                message="Consolidation failed",
+                error=result["error"]
+            )
+            
+        return ChatConsolidationResponse(
+            success=True,
+            processed_count=result["processed_count"],
+            sessions_processed=result["sessions_processed"],
+            message=result["message"]
+        )
+            
+    except Exception as e:
+        logger.error(f"Error eliminating chat memory: {e}")
+        raise HTTPException(status_code=500, detail=f"Consolidation failed: {str(e)}")
 if __name__ == "__main__":
     import uvicorn
     

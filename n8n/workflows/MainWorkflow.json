@@ -1,0 +1,540 @@
+{
+  "name": "MainWorkflow",
+  "nodes": [
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ (() => { try { return $('ASR: Whisper').first().json.text; } catch(e) { try { return $('When chat message received').first().json.chatInput; } catch(e2) { return ''; } } })() }}",
+        "options": {
+          "systemMessage": "=You are Lynx, an AI assistant on a SPOT robot at CU Denver. You help people on campus using real-time perception and CU Denver databases. Only answer CU Denver-related questions. For anything else: \"I'm specialized for CU Denver — anything campus-related I can help with?\" PERCEPTION You have real-time vision. Your current scene and detected people are provided below in CURRENT CONTEXT. Use this proactively — greet people by name if recognized, and reference your surroundings naturally when relevant. TOOLS - cu_denver_faculty_search → any question about a specific person (faculty, staff, researchers) input: {\"input\": \"search text\"} - cu_denver_search → everything else (buildings, programs, admissions, events, policies) input: {\"input\": \"search text\"} If both person + topic → call both tools. RULES -  Use they/them for unknown gender. - If tools don't answer it: \"Try contacting [office] or ucdenver.edu directly.\" - Offer \"Want me to send more details?\" for complex topics. CURRENT CONTEXT Time: {{ $json.current_time || 'unknown' }} Day: {{ $json.day_of_week || 'unknown' }} People: {{ JSON.stringify($json.faces || []) }} Scene: {{ $json.scene_caption || $json.scene_memo || 'No scene data.' }} {{ $json.personalization_context || '' }}"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        -672,
+        48
+      ],
+      "id": "135d6ab8-6729-421b-94b9-ef5517b0c8f9",
+      "name": "LLM - Ollama 3",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "triggerOn": "folder",
+        "path": "/data/asr",
+        "events": [
+          "add",
+          "change"
+        ],
+        "options": {
+          "followSymlinks": true,
+          "usePolling": true
+        }
+      },
+      "type": "n8n-nodes-base.localFileTrigger",
+      "typeVersion": 1,
+      "position": [
+        -2544,
+        -48
+      ],
+      "id": "8c1452fc-caa9-4ca2-a23a-80729efd6808",
+      "name": "Local File Trigger",
+      "retryOnFail": false,
+      "alwaysOutputData": false,
+      "executeOnce": false
+    },
+    {
+      "parameters": {
+        "fileSelector": "={{ $('Local File Trigger').item.json.path }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        -1824,
+        -48
+      ],
+      "id": "317eebf7-fdf0-49a6-8b4d-d97384ea7f1f",
+      "name": "Read/Write Files from Disk"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8002/transcribe",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "audio/wav"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "binaryData",
+        "inputDataFieldName": "data",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -1536,
+        -48
+      ],
+      "id": "0003aee8-bb46-4f38-9b97-f22b41277d30",
+      "name": "ASR: Whisper",
+      "executeOnce": false
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8880/v1/audio/speech",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n        \"model\": \"kokoro\",\n        \"input\": \"{{ $json.output.replace(/\\r?\\n|\\n/g, '').replace(/\\\\n/g, '') }}\",\n        \"voice\": \"af_heart\",\n        \"response_format\": \"wav\",\n        \"speed\": 1.2,\n        \"stream\": false\n      }",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -112,
+        48
+      ],
+      "id": "0f6d603c-813a-43c0-8c7c-3b8c4f616369",
+      "name": "TTS: Kokoro",
+      "alwaysOutputData": true,
+      "executeOnce": false
+    },
+    {
+      "parameters": {
+        "model": "embeddinggemma:latest"
+      },
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOllama",
+      "typeVersion": 1,
+      "position": [
+        -592,
+        480
+      ],
+      "id": "9d0fced0-6098-4e53-829d-db752316ae92",
+      "name": "Embeddings Ollama",
+      "credentials": {
+        "ollamaApi": {
+          "id": "PRBswlHkOo3NGyVP",
+          "name": "Ollama account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "qcwind/qwen2.5-7B-instruct-Q4_K_M:latest",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        -864,
+        288
+      ],
+      "id": "3a3f3e72-160d-4489-b503-8286cd37ce01",
+      "name": "Ollama Chat Model",
+      "credentials": {
+        "ollamaApi": {
+          "id": "PRBswlHkOo3NGyVP",
+          "name": "Ollama account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "retrieve-as-tool",
+        "toolDescription": "Work with cu_denver_search to retrieve CU Denver relevant data",
+        "qdrantCollection": {
+          "__rl": true,
+          "value": "cu_denver_database",
+          "mode": "list",
+          "cachedResultName": "cu_denver_database"
+        },
+        "topK": 8,
+        "includeDocumentMetadata": false,
+        "options": {
+          "contentPayloadKey": "text"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreQdrant",
+      "typeVersion": 1.3,
+      "position": [
+        -592,
+        304
+      ],
+      "id": "a4141351-187a-4894-96da-22d4114cb550",
+      "name": "cu_denver_search",
+      "credentials": {
+        "qdrantApi": {
+          "id": "9tbARtLagTlU3KWm",
+          "name": "QdrantApi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {
+          "responseMode": "streaming"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -1664,
+        288
+      ],
+      "id": "d9c86a63-b838-4d63-a69e-ba2e0e147774",
+      "name": "When chat message received",
+      "webhookId": "4dde8d39-32d0-4624-8870-f5b12aec5858"
+    },
+    {
+      "parameters": {
+        "url": "http://host.docker.internal:8089/state",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -1200,
+        -16
+      ],
+      "id": "eaea4bc7-d6fb-4a74-b2b8-53449a519b8b",
+      "name": "Get Vision State"
+    },
+    {
+      "parameters": {
+        "jsCode": "const state = $input.first().json;\nconst now = new Date();\nreturn {\n  ...state,\n  current_time: now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),\n  day_of_week: now.toLocaleDateString('en-US', { weekday: 'long' }),\n  date: now.toLocaleDateString('en-US')\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -928,
+        16
+      ],
+      "id": "2149d8bc-6773-4963-99ee-f16d14373cba",
+      "name": "Enrich with Time"
+    },
+    {
+      "parameters": {
+        "mode": "retrieve-as-tool",
+        "toolDescription": "Work with cu_denver_faculty_search to retrieve faculty information",
+        "qdrantCollection": {
+          "__rl": true,
+          "value": "cu_denver_database",
+          "mode": "list",
+          "cachedResultName": "cu_denver_database"
+        },
+        "topK": 8,
+        "includeDocumentMetadata": false,
+        "options": {
+          "searchFilterJson": "{\n  \"must\": [\n    {\n      \"key\": \"metadata.type\",\n      \"match\": { \"value\": \"faculty_profile\" }\n    }\n  ]\n}",
+          "contentPayloadKey": "text"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreQdrant",
+      "typeVersion": 1.3,
+      "position": [
+        -336,
+        304
+      ],
+      "id": "f8bd8f34-65ab-47d4-9822-bf68747c23bb",
+      "name": "cu_denver_faculty_search",
+      "credentials": {
+        "qdrantApi": {
+          "id": "9tbARtLagTlU3KWm",
+          "name": "QdrantApi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "embeddinggemma:latest"
+      },
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOllama",
+      "typeVersion": 1,
+      "position": [
+        -336,
+        496
+      ],
+      "id": "54407c66-ae44-455d-a9d6-230af5ddd51f",
+      "name": "Embeddings Ollama1",
+      "credentials": {
+        "ollamaApi": {
+          "id": "PRBswlHkOo3NGyVP",
+          "name": "Ollama account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        -704,
+        288
+      ],
+      "id": "9e907f56-4217-4e33-896e-fa9de01836e6",
+      "name": "Simple Memory"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8001/interrupt",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -2320,
+        -48
+      ],
+      "id": "c24ff371-9ebb-4a1d-8bfb-a748779bcbd1",
+      "name": "Speaker1"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "58d181a3-5b4d-439e-b53e-16a0294706b8",
+              "name": "epoch",
+              "value": "={{$json.epoch}}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -2064,
+        -48
+      ],
+      "id": "5bf1535c-800a-40d6-9792-027c192a06c5",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://host.docker.internal:8001/play?epoch={{ $('Edit Fields').item.json.epoch }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "audio/wav"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "binaryData",
+        "inputDataFieldName": "data",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        128,
+        48
+      ],
+      "id": "fe2ec160-1aaa-4fdc-b33d-fb65bd0aad02",
+      "name": "Speaker"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Local File Trigger": {
+      "main": [
+        [
+          {
+            "node": "Speaker1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read/Write Files from Disk": {
+      "main": [
+        [
+          {
+            "node": "ASR: Whisper",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ASR: Whisper": {
+      "main": [
+        [
+          {
+            "node": "Get Vision State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Vision State": {
+      "main": [
+        [
+          {
+            "node": "Enrich with Time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enrich with Time": {
+      "main": [
+        [
+          {
+            "node": "LLM - Ollama 3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TTS: Kokoro": {
+      "main": [
+        [
+          {
+            "node": "Speaker",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings Ollama": {
+      "ai_embedding": [
+        [
+          {
+            "node": "cu_denver_search",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "LLM - Ollama 3",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM - Ollama 3": {
+      "main": [
+        [
+          {
+            "node": "TTS: Kokoro",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When chat message received": {
+      "main": [
+        [
+          {
+            "node": "Get Vision State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "cu_denver_search": {
+      "ai_tool": [
+        [
+          {
+            "node": "LLM - Ollama 3",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "cu_denver_faculty_search": {
+      "ai_tool": [
+        [
+          {
+            "node": "LLM - Ollama 3",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings Ollama1": {
+      "ai_embedding": [
+        [
+          {
+            "node": "cu_denver_faculty_search",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory": {
+      "ai_memory": [
+        []
+      ]
+    },
+    "Speaker1": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Read/Write Files from Disk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "50a6d854-66ee-4e9c-81da-2af8e866b94c",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "cf62c18d1d7d43f57771f2639fa7581d7f4995b1fc54b37462680c04da0cf259"
+  },
+  "id": "GiQ0B2LGpp3dtXUn",
+  "tags": []
+}

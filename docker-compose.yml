@@ -79,6 +79,13 @@ services:
       - "11434:11434"
     volumes:
       - ollama_data:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     healthcheck:
       test: [ "CMD", "ollama", "list" ]
       interval: 10s
@@ -122,41 +129,23 @@ services:
     runtime: nvidia
 
   postgres:
-    image: postgres:15
+    image: postgres:16
+    container_name: postgres
+    restart: always
     environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=atlasai
+      POSTGRES_USER: demo
+      POSTGRES_PASSWORD: demo123
+      POSTGRES_DB: hitl
     ports:
-      - "5433:5432"
+      - "5432:5432"
     volumes:
-      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
-    restart: unless-stopped
+      - pgdata:/var/lib/postgresql/data
 
-  worker:
-    build:
-      context: ./worker
-      dockerfile: Dockerfile
-    ports:
-      - "8000:8000"
-    environment:
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - QDRANT_URL=http://qdrant:6333
-      - POSTGRES_URL=postgresql://postgres:postgres@postgres:5432/atlasai
-      - LOG_LEVEL=INFO
-    depends_on:
-      - qdrant
-      - postgres
-    restart: unless-stopped
-    volumes:
-      - ./worker/app:/app/app:cached
-      - ./.env:/app/.env:ro
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
 
 volumes:
   n8n_data:
   qdrant_data:
   ollama_data:
   asr_audio:
-
-
+  pgdata:
