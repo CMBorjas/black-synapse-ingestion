@@ -7,8 +7,8 @@ Handles ingestion, deduplication, chunking, and vector storage to power the robo
 
 import os
 import logging
-from typing import Dict, Any, List
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from typing import Dict, Any, List, Optional
+from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
@@ -16,6 +16,7 @@ from dotenv import load_dotenv
 from .pipeline import IngestionPipeline
 from .utils import setup_logging
 from .scraper import scrape_url
+from .qr_analyzer import decode_qr_from_bytes, decode_qr_from_base64, classify_qr_content
 import uuid
 from datetime import datetime
 
@@ -79,6 +80,22 @@ class SyncResponse(BaseModel):
     documents_processed: int = 0
     documents_deleted: int = 0
     errors: List[str] = []
+
+class QRCodeResult(BaseModel):
+    """Result for a single decoded QR code value."""
+    value: str
+    content_type: str  # "url" or "text"
+    ingested: bool
+    doc_id: Optional[str] = None
+    chunks_processed: int = 0
+    error: Optional[str] = None
+
+class QRAnalyzeResponse(BaseModel):
+    """Response model for QR code analysis."""
+    success: bool
+    qr_codes_found: int
+    results: List[QRCodeResult]
+    message: str
 
 @app.get("/")
 async def root():
@@ -295,6 +312,119 @@ async def ingest_user_profile(
     except Exception as e:
         logger.error(f"Error processing user profile {request.name}: {e}")
         raise HTTPException(status_code=500, detail=f"Processing failed: {str(e)}")
+
+async def _ingest_qr_value(value: str, content_type: str) -> Dict[str, Any]:
+    """Ingest a single decoded QR value through the pipeline."""
+    now = datetime.utcnow().isoformat()
+    doc_id = f"qr_{uuid.uuid4().hex[:12]}"
+
+    if content_type == "url":
+        text = scrape_url(value)
+        if not text:
+            return {"ingested": False, "doc_id": doc_id, "chunks_processed": 0,
+                    "error": f"Failed to scrape URL: {value}"}
+        title = f"QR Code URL: {value}"
+        uri = value
+        source = "qr_url"
+    else:
+        text = value
+        title = f"QR Code Text: {value[:80]}"
+        uri = f"qr://text/{doc_id}"
+        source = "qr_text"
+
+    document = DocumentPayload(
+        doc_id=doc_id,
+        source=source,
+        title=title,
+        uri=uri,
+        text=text,
+        author="qr_analyzer",
+        created_at=now,
+        updated_at=now,
+    )
+
+    result = await pipeline.process_document(document)
+    return {
+        "ingested": result["success"],
+        "doc_id": doc_id,
+        "chunks_processed": result.get("chunks_processed", 0),
+        "error": result.get("error"),
+    }
+
+
+@app.post("/analyze/qr", response_model=QRAnalyzeResponse)
+async def analyze_qr_code(
+    file: Optional[UploadFile] = File(default=None),
+    image_base64: Optional[str] = Form(default=None),
+    ingest: bool = Form(default=True),
+):
+    """
+    Analyze a QR code image and optionally ingest its content.
+
+    Accepts either:
+    - A binary image upload via `file` (multipart/form-data)
+    - A base64-encoded image string via `image_base64`
+
+    For each QR code found:
+    - If the decoded value is a URL, it is scraped and embedded.
+    - If it is plain text, it is embedded directly.
+
+    Set `ingest=false` to decode without ingesting.
+    """
+    if file is None and not image_base64:
+        raise HTTPException(status_code=400, detail="Provide either 'file' or 'image_base64'")
+
+    # Decode QR codes
+    try:
+        if file is not None:
+            image_bytes = await file.read()
+            decoded_values = decode_qr_from_bytes(image_bytes)
+        else:
+            decoded_values = decode_qr_from_base64(image_base64)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except Exception as exc:
+        logger.error(f"QR decode error: {exc}")
+        raise HTTPException(status_code=500, detail=f"QR decoding failed: {str(exc)}")
+
+    if not decoded_values:
+        return QRAnalyzeResponse(
+            success=True,
+            qr_codes_found=0,
+            results=[],
+            message="No QR codes detected in the image",
+        )
+
+    results: List[QRCodeResult] = []
+    for value in decoded_values:
+        content_type = classify_qr_content(value)
+
+        if ingest:
+            ingest_result = await _ingest_qr_value(value, content_type)
+            results.append(QRCodeResult(
+                value=value,
+                content_type=content_type,
+                ingested=ingest_result["ingested"],
+                doc_id=ingest_result["doc_id"],
+                chunks_processed=ingest_result["chunks_processed"],
+                error=ingest_result.get("error"),
+            ))
+        else:
+            results.append(QRCodeResult(
+                value=value,
+                content_type=content_type,
+                ingested=False,
+            ))
+
+    success = all(r.ingested for r in results) if ingest else True
+    logger.info(f"QR analysis: {len(results)} code(s) found, ingest={ingest}")
+    return QRAnalyzeResponse(
+        success=success,
+        qr_codes_found=len(results),
+        results=results,
+        message=f"Processed {len(results)} QR code(s)",
+    )
+
 
 if __name__ == "__main__":
     import uvicorn
