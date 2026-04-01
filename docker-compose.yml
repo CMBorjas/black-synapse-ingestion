@@ -27,6 +27,11 @@ services:
       - EXECUTIONS_TIMEOUT=180
       - EXECUTIONS_TIMEOUT_MAX=600
 
+      # n8n 2.x defaults exclude localFileTrigger; MainWorkflow needs /data/asr watcher.
+      - 'NODES_EXCLUDE=["n8n-nodes-base.executeCommand"]'
+      # Read/Write File + Local File Trigger need /data/asr (semicolon-separated allow list).
+      - N8N_RESTRICT_FILE_ACCESS_TO=/home/node/.n8n-files;/data/asr
+
     volumes:
       - n8n_data:/home/node/.n8n
       - "./ASR:/data/asr"
@@ -50,6 +55,10 @@ services:
 
       - EXECUTIONS_TIMEOUT=180
       - EXECUTIONS_TIMEOUT_MAX=600
+
+      - 'NODES_EXCLUDE=["n8n-nodes-base.executeCommand"]'
+      - N8N_RESTRICT_FILE_ACCESS_TO=/home/node/.n8n-files;/data/asr
+
     volumes:
       - n8n_data:/home/node/.n8n
       - "./ASR:/data/asr"
@@ -79,13 +88,6 @@ services:
       - "11434:11434"
     volumes:
       - ollama_data:/root/.ollama
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
     healthcheck:
       test: [ "CMD", "ollama", "list" ]
       interval: 10s
@@ -118,34 +120,52 @@ services:
       - PYTHONUNBUFFERED=1
 
   kokoro-tts:
-    image: ghcr.io/remsky/kokoro-fastapi-gpu:latest
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:latest
     ports:
       - "8880:8880"
     restart: unless-stopped
     environment:
       - PYTHONUNBUFFERED=1
-      - NVIDIA_VISIBLE_DEVICES=all
-      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
-    runtime: nvidia
 
-  postgres:
-    image: postgres:16
-    container_name: postgres
-    restart: always
-    environment:
-      POSTGRES_USER: demo
-      POSTGRES_PASSWORD: demo123
-      POSTGRES_DB: hitl
+  deepface:
+    image: serengil/deepface:latest
+    platform: linux/amd64
     ports:
-      - "5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
+      - "5000:5000"
+    restart: unless-stopped
 
+  # postgres:
+  #   image: postgres:15
+  #   environment:
+  #     - POSTGRES_USER=postgres
+  #     - POSTGRES_PASSWORD=postgres
+  #     - POSTGRES_DB=atlasai
+  #   ports:
+  #     - "5433:5432"
+  #   volumes:
+  #     - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+  #   restart: unless-stopped
 
+  # worker:
+  #   build:
+  #     context: ./worker
+  #     dockerfile: Dockerfile
+  #   ports:
+  #     - "8000:8000"
+  #   environment:
+  #     - QDRANT_URL=http://qdrant:6333
+  #     - LOG_LEVEL=INFO
+  #   depends_on:
+  #     - qdrant
+  #     - postgres
+  #   restart: unless-stopped
+  #   volumes:
+  #     - ./worker/app:/app/app:cached
+  #     - ./.env:/app/.env:ro
+  #   command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 volumes:
   n8n_data:
   qdrant_data:
   ollama_data:
   asr_audio:
-  pgdata:
