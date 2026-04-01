@@ -32,7 +32,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("-v", "--verbose", action="store_true", help="debug logging")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    sub.add_parser("center", help="Move all four servos to center_us")
+    sub.add_parser("center", help="Move arm, head tilt, and ear to center_us")
 
     p_arm = sub.add_parser("arm", help="Set arm joints (normalized -1..1 or pulse us)")
     p_arm.add_argument("--n0", type=float, default=None, help="joint0 normalized -1..1")
@@ -46,6 +46,10 @@ def main(argv: list[str] | None = None) -> int:
     p_head.add_argument("--pan-us", type=float, default=None, dest="pan_us")
     p_head.add_argument("--tilt-us", type=float, default=None, dest="tilt_us")
     p_head.add_argument("--pose", type=str, default=None, help="named pose: neutral, look_left, ...")
+
+    p_ear = sub.add_parser("ear", help="Set ear servo (normalized -1..1 or pulse us)")
+    p_ear.add_argument("-n", type=float, default=None, dest="norm", help="normalized -1..1")
+    p_ear.add_argument("--us", type=float, default=None, dest="us", help="pulse microseconds")
 
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.WARNING)
@@ -88,23 +92,42 @@ def main(argv: list[str] | None = None) -> int:
                     parser.error(f"unknown pose {args.pose!r}")
                 head.set_normalized(pt[0], pt[1])
             elif args.pan_us is not None or args.tilt_us is not None:
+                if args.pan_us is not None and head.pan_spec is None:
+                    parser.error("head: no pan servo wired (--pan-us unsupported)")
                 p, t = head.last_pulses
                 if args.pan_us is not None:
                     p = args.pan_us
                 if args.tilt_us is not None:
                     t = args.tilt_us
-                if p is None:
+                if head.pan_spec is not None and p is None:
                     p = head.pan_spec.center_us
                 if t is None:
                     t = head.tilt_spec.center_us
-                head.set_pulses(float(p), float(t))
+                pan_f = float(p) if p is not None else 0.0
+                head.set_pulses(pan_f, float(t))
             elif args.pan is not None or args.tilt is not None:
+                if args.pan is not None and head.pan_spec is None:
+                    parser.error("head: no pan servo wired (--pan unsupported)")
                 lp = head.last_pulses
-                pn = args.pan if args.pan is not None else us_to_normalized(head.pan_spec, lp[0])
+                pn = (
+                    args.pan
+                    if args.pan is not None
+                    else us_to_normalized(head.pan_spec, lp[0])
+                    if head.pan_spec is not None
+                    else 0.0
+                )
                 tn = args.tilt if args.tilt is not None else us_to_normalized(head.tilt_spec, lp[1])
                 head.set_normalized(pn, tn)
             else:
                 parser.error("head: specify --pose, or --pan/--tilt, or --pan-us/--tilt-us")
+        elif args.cmd == "ear":
+            ear = orch.ear
+            if args.us is not None:
+                ear.set_pulse(float(args.us))
+            elif args.norm is not None:
+                ear.set_normalized(float(args.norm))
+            else:
+                parser.error("ear: specify -n or --us")
         return 0
     finally:
         orch.close()

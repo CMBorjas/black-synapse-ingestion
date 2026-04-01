@@ -1,4 +1,4 @@
-"""PCA9685 servo control: robotic arm (2 DOF) + head pan/tilt (2 DOF)."""
+"""PCA9685 servo control: arm (shoulder/elbow), head tilt (+ optional pan), ear."""
 
 from action_servos.config import (
     DEFAULT_I2C_BUS,
@@ -11,6 +11,7 @@ from action_servos.config import (
 )
 from action_servos.groups import (
     ArmController,
+    EarController,
     HeadController,
     ServoOrchestrator,
     clamp_pulse,
@@ -27,6 +28,7 @@ __all__ = [
     "DEFAULT_MIN_US",
     "DEFAULT_PCA9685_ADDRESS",
     "DEFAULT_PWM_FREQUENCY_HZ",
+    "EarController",
     "HeadController",
     "JointSpec",
     "PCA9685",

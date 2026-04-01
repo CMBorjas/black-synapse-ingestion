@@ -45,5 +45,8 @@ def test_presets_head_pose() -> None:
 
 def test_servo_layout_default() -> None:
     L = ServoLayout.default_layout()
-    assert L.arm_joint0.channel == 0
-    assert L.head_tilt.channel == 3
+    assert L.arm_joint0.channel == 6
+    assert L.arm_joint1.channel == 5
+    assert L.head_pan is None
+    assert L.head_tilt.channel == 0
+    assert L.ear.channel == 3

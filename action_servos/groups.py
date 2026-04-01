@@ -1,4 +1,4 @@
-"""High-level arm (2 DOF) and head (pan/tilt) on a shared PCA9685."""
+"""High-level arm, head (optional pan + tilt), and ear on a shared PCA9685."""
 
 from __future__ import annotations
 
@@ -107,14 +107,19 @@ class ArmController:
 
 
 class HeadController:
-    def __init__(self, pca: PCA9685, pan: JointSpec, tilt: JointSpec) -> None:
+    def __init__(
+        self,
+        pca: PCA9685,
+        tilt: JointSpec,
+        pan: Optional[JointSpec] = None,
+    ) -> None:
         self._pca = pca
         self._pan = pan
         self._tilt = tilt
         self._state = HeadState()
 
     @property
-    def pan_spec(self) -> JointSpec:
+    def pan_spec(self) -> Optional[JointSpec]:
         return self._pan
 
     @property
@@ -126,18 +131,25 @@ class HeadController:
         return (self._state.pan, self._state.tilt)
 
     def set_pulses(self, pan_us: float, tilt_us: float) -> None:
-        pu = clamp_pulse(self._pan, pan_us)
         tu = clamp_pulse(self._tilt, tilt_us)
-        self._pca.set_channel_pulse_us(self._pan.channel, pu)
         self._pca.set_channel_pulse_us(self._tilt.channel, tu)
-        self._state.pan, self._state.tilt = pu, tu
-        logger.debug("head pulses us: pan=%.1f tilt=%.1f", pu, tu)
+        self._state.tilt = tu
+        if self._pan is not None:
+            pu = clamp_pulse(self._pan, pan_us)
+            self._pca.set_channel_pulse_us(self._pan.channel, pu)
+            self._state.pan = pu
+            logger.debug("head pulses us: pan=%.1f tilt=%.1f", pu, tu)
+        else:
+            self._state.pan = None
+            logger.debug("head pulses us: (no pan) tilt=%.1f", tu)
 
     def set_normalized(self, pan: float, tilt: float) -> None:
-        self.set_pulses(normalized_to_us(self._pan, pan), normalized_to_us(self._tilt, tilt))
+        pan_us = normalized_to_us(self._pan, pan) if self._pan is not None else 0.0
+        self.set_pulses(pan_us, normalized_to_us(self._tilt, tilt))
 
     def center(self) -> None:
-        self.set_pulses(self._pan.center_us, self._tilt.center_us)
+        pan_c = self._pan.center_us if self._pan is not None else 0.0
+        self.set_pulses(pan_c, self._tilt.center_us)
 
     def move_ramp(
         self,
@@ -146,28 +158,82 @@ class HeadController:
         duration_s: float = 0.4,
         steps: int = 20,
     ) -> None:
-        pt = clamp_pulse(self._pan, pan_us)
         tt = clamp_pulse(self._tilt, tilt_us)
-        if self._state.pan is None or self._state.tilt is None:
+        pt = clamp_pulse(self._pan, pan_us) if self._pan is not None else 0.0
+        if self._state.tilt is None or (self._pan is not None and self._state.pan is None):
             self.set_pulses(pt, tt)
             return
-        sp, st = self._state.pan, self._state.tilt
+        st = self._state.tilt
+        sp = self._state.pan if self._pan is not None else pt
         duration_s = max(0.01, float(duration_s))
         steps = max(2, int(steps))
         for i in range(1, steps + 1):
             a = i / float(steps)
-            self.set_pulses(sp + (pt - sp) * a, st + (tt - st) * a)
+            new_pan = sp + (pt - sp) * a if self._pan is not None else pt
+            new_tilt = st + (tt - st) * a
+            self.set_pulses(new_pan, new_tilt)
+            time.sleep(duration_s / steps)
+
+
+@dataclass
+class EarState:
+    pulse: Optional[float] = None
+
+
+class EarController:
+    def __init__(self, pca: PCA9685, spec: JointSpec) -> None:
+        self._pca = pca
+        self._spec = spec
+        self._state = EarState()
+
+    @property
+    def spec(self) -> JointSpec:
+        return self._spec
+
+    @property
+    def last_pulse(self) -> Optional[float]:
+        return self._state.pulse
+
+    def set_pulse(self, pulse_us: float) -> None:
+        u = clamp_pulse(self._spec, pulse_us)
+        self._pca.set_channel_pulse_us(self._spec.channel, u)
+        self._state.pulse = u
+        logger.debug("ear pulse us: %.1f", u)
+
+    def set_normalized(self, n: float) -> None:
+        self.set_pulse(normalized_to_us(self._spec, n))
+
+    def center(self) -> None:
+        self.set_pulse(self._spec.center_us)
+
+    def move_ramp(
+        self,
+        pulse_us: float,
+        duration_s: float = 0.4,
+        steps: int = 20,
+    ) -> None:
+        t = clamp_pulse(self._spec, pulse_us)
+        if self._state.pulse is None:
+            self.set_pulse(t)
+            return
+        start = self._state.pulse
+        duration_s = max(0.01, float(duration_s))
+        steps = max(2, int(steps))
+        for i in range(1, steps + 1):
+            a = i / float(steps)
+            self.set_pulse(start + (t - start) * a)
             time.sleep(duration_s / steps)
 
 
 class ServoOrchestrator:
-    """Shared PCA9685 with arm + head; use for full-robot presets and estop."""
+    """Shared PCA9685 with arm + head (+ optional ear); use for full-robot presets and estop."""
 
     def __init__(self, layout: Optional[ServoLayout] = None) -> None:
         self.layout = layout or ServoLayout.default_layout()
         self._pca: Optional[PCA9685] = None
         self._arm_ctl: Optional[ArmController] = None
         self._head_ctl: Optional[HeadController] = None
+        self._ear_ctl: Optional[EarController] = None
 
     def open(self, bus: int, address: int, frequency_hz: float = 50.0) -> None:
         self.close()
@@ -175,11 +241,13 @@ class ServoOrchestrator:
         self._pca.open()
         L = self.layout
         self._arm_ctl = ArmController(self._pca, L.arm_joint0, L.arm_joint1)
-        self._head_ctl = HeadController(self._pca, L.head_pan, L.head_tilt)
+        self._head_ctl = HeadController(self._pca, L.head_tilt, pan=L.head_pan)
+        self._ear_ctl = EarController(self._pca, L.ear)
 
     def close(self) -> None:
         self._arm_ctl = None
         self._head_ctl = None
+        self._ear_ctl = None
         if self._pca is not None:
             self._pca.close()
             self._pca = None
@@ -215,9 +283,16 @@ class ServoOrchestrator:
             raise RuntimeError("ServoOrchestrator not opened; call open() or use a context manager")
         return self._head_ctl
 
+    @property
+    def ear(self) -> EarController:
+        if self._ear_ctl is None:
+            raise RuntimeError("ServoOrchestrator not opened; call open() or use a context manager")
+        return self._ear_ctl
+
     def all_center(self) -> None:
         self.arm.center()
         self.head.center()
+        self.ear.center()
 
     def estop_center(self) -> None:
         """Safe pose: all joints to calibrated center (no chip sleep)."""

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Optional
 
 
 # Typical Jetson header I2C bus; confirm with `i2cdetect -l` on device.
@@ -33,19 +34,21 @@ class JointSpec:
 
 @dataclass(frozen=True)
 class ServoLayout:
-    """Four motors: arm (2 DOF) + head (2 DOF)."""
+    """Arm (shoulder + elbow), head tilt (up/down), ear; optional head pan if wired."""
 
     arm_joint0: JointSpec
     arm_joint1: JointSpec
-    head_pan: JointSpec
+    head_pan: Optional[JointSpec]
     head_tilt: JointSpec
+    ear: JointSpec
 
     @classmethod
     def default_layout(cls) -> ServoLayout:
-        """Sequential channels 0-3; adjust in one place if wiring differs."""
+        """Channels: head up/down 0, ear 3, elbow 5, shoulder 6; no pan servo."""
         return cls(
-            arm_joint0=JointSpec(0),
-            arm_joint1=JointSpec(1),
-            head_pan=JointSpec(2),
-            head_tilt=JointSpec(3, min_us=1000, max_us=2000),
+            arm_joint0=JointSpec(6),
+            arm_joint1=JointSpec(5),
+            head_pan=None,
+            head_tilt=JointSpec(0, min_us=1000, max_us=2000),
+            ear=JointSpec(3),
         )
