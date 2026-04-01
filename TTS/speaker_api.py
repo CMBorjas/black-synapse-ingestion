@@ -47,7 +47,7 @@ def _init_pygame() -> None:
     if not _pygame_initialized:
         try:
             # Optional: tune buffer/latency here if needed
-            pygame.mixer.init()
+            pygame.mixer.init(devicename='Built-in Audio Digital Stereo (HDMI)')
             _pygame_initialized = True
         except pygame.error as e:
             raise RuntimeError(
