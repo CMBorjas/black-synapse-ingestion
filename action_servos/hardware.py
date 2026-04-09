@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import logging
 import math
 import time
@@ -39,7 +40,18 @@ class PCA9685:
     def open(self) -> None:
         if self._bus is not None:
             return
-        self._bus = SMBus(self._bus_no)
+        dev = f"/dev/i2c-{self._bus_no}"
+        try:
+            self._bus = SMBus(self._bus_no)
+        except OSError as e:
+            if e.errno == errno.EBUSY:
+                raise OSError(
+                    errno.EBUSY,
+                    f"{e.strerror} on {dev}: another process likely holds the bus, or a kernel "
+                    f"driver (e.g. pca9685) claimed it. Try: sudo fuser -v {dev} ; stop duplicate "
+                    "servo scripts; only one SMBus user at a time per bus.",
+                ) from e
+            raise
         self._reset()
         self.set_pwm_frequency(self._frequency_hz)
         logger.debug("PCA9685 opened bus=%s addr=0x%02x", self._bus_no, self._address)
