@@ -41,6 +41,24 @@ WAKE_WORD_THRESHOLD = 0.5
 # Cooldown period after detection (seconds) - prevents immediate re-detection
 COOLDOWN_SECONDS = 2.0
 
+def _play_wake_chime():
+    """Play a short two-tone acknowledgment chime through the default output device."""
+    try:
+        duration = 0.08  # seconds per tone
+        t = np.linspace(0, duration, int(SAMPLE_RATE * duration), endpoint=False)
+        fade = np.linspace(0.0, 1.0, int(SAMPLE_RATE * 0.01))  # 10ms fade-in
+        tone1 = (0.35 * np.sin(2 * np.pi * 880 * t)).astype(np.float32)
+        tone2 = (0.35 * np.sin(2 * np.pi * 1320 * t)).astype(np.float32)
+        tone1[:len(fade)] *= fade
+        tone2[:len(fade)] *= fade
+        tone1[-len(fade):] *= fade[::-1]
+        tone2[-len(fade):] *= fade[::-1]
+        chime = np.concatenate([tone1, tone2])
+        sd.play(chime, samplerate=SAMPLE_RATE, blocking=True)
+    except Exception:
+        pass  # Non-critical
+
+
 def is_speech(frame, vad):
     return vad.is_speech(frame.tobytes(), SAMPLE_RATE)
 
@@ -88,6 +106,7 @@ def record_after_wake():
                 last_detection_time = current_time
                 print("[Wake word detected!] Interrupting speaker and recording...")
                 _interrupt_speaker()
+                _play_wake_chime()
                 frames = []
                 silence_counter = 0
                 # Buffer for VAD processing (need 30ms frames for VAD)
