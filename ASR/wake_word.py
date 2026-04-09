@@ -33,7 +33,8 @@ OWW_FRAME_LENGTH = 1280
 # VAD frame size (30ms for optimal VAD performance)
 VAD_FRAME_DURATION_MS = 30
 VAD_FRAME_SIZE = int(SAMPLE_RATE * VAD_FRAME_DURATION_MS / 1000)
-SILENCE_FRAMES = int(800 / VAD_FRAME_DURATION_MS)
+SILENCE_DURATION_MS = int(os.getenv("SILENCE_DURATION_MS", "1800"))
+SILENCE_FRAMES = int(SILENCE_DURATION_MS / VAD_FRAME_DURATION_MS)
 OUTPUT_WAV = "utterance.wav"
 # Detection threshold for wake word (adjust between 0.0 and 1.0)
 WAKE_WORD_THRESHOLD = 0.5

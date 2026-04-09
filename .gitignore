@@ -63,6 +63,8 @@ cover/
 # Jupyter Notebook
 .ipynb_checkpoints
 
+*.tar.bz2
+
 # IPython
 profile_default/
 ipython_config.py
