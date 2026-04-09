@@ -4,13 +4,18 @@
 
 import webrtcvad
 import sounddevice as sd
+import soundfile as sf
 import numpy as np
 import wave
 import time
 import os
+import random
 import urllib.request
+from pathlib import Path
 from openwakeword import Model
 import openwakeword
+
+WAKE_SOUNDS_DIR = Path(__file__).parent / "wake_sounds"
 
 SPEAKER_API_URL = os.getenv("SPEAKER_API_URL", "http://localhost:8001")
 
@@ -42,21 +47,30 @@ WAKE_WORD_THRESHOLD = 0.5
 COOLDOWN_SECONDS = 2.0
 
 def _play_wake_chime():
-    """Play a short two-tone acknowledgment chime through the default output device."""
+    """Play a random acknowledgment phrase from ASR/wake_sounds/. Falls back to a simple chime if none found."""
+    sound_files = list(WAKE_SOUNDS_DIR.glob("*.wav")) + list(WAKE_SOUNDS_DIR.glob("*.mp3"))
+    if sound_files:
+        try:
+            chosen = random.choice(sound_files)
+            audio, sample_rate = sf.read(str(chosen), dtype="float32")
+            sd.play(audio, samplerate=sample_rate, blocking=True)
+            return
+        except Exception:
+            pass  # Fall through to chime
+    # Fallback: two-tone chime
     try:
-        duration = 0.08  # seconds per tone
+        duration = 0.08
         t = np.linspace(0, duration, int(SAMPLE_RATE * duration), endpoint=False)
-        fade = np.linspace(0.0, 1.0, int(SAMPLE_RATE * 0.01))  # 10ms fade-in
+        fade = np.linspace(0.0, 1.0, int(SAMPLE_RATE * 0.01))
         tone1 = (0.35 * np.sin(2 * np.pi * 880 * t)).astype(np.float32)
         tone2 = (0.35 * np.sin(2 * np.pi * 1320 * t)).astype(np.float32)
         tone1[:len(fade)] *= fade
         tone2[:len(fade)] *= fade
         tone1[-len(fade):] *= fade[::-1]
         tone2[-len(fade):] *= fade[::-1]
-        chime = np.concatenate([tone1, tone2])
-        sd.play(chime, samplerate=SAMPLE_RATE, blocking=True)
+        sd.play(np.concatenate([tone1, tone2]), samplerate=SAMPLE_RATE, blocking=True)
     except Exception:
-        pass  # Non-critical
+        pass
 
 
 def is_speech(frame, vad):

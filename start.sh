@@ -8,21 +8,39 @@ cd "$SCRIPT_DIR"
 echo "Starting AtlasAI System..."
 
 # Check if .env file exists
-if [ ! -f .env ]; then
-    echo ".env file not found. Creating from template..."
-    cp env.example .env
-    echo "Please edit .env with your configuration (Required: OPENAI_API_KEY)"
+if [ -d .env ]; then
+    echo "ERROR: .env is a directory, not a file. Remove it with: rm -rf .env"
     exit 1
 fi
+if [ ! -f .env ]; then
+    echo "WARNING: .env file not found. Creating from template (edit it to add OPENAI_API_KEY)..."
+    cp env.example .env
+fi
 
-# Check if Docker is running
-if ! docker info > /dev/null 2>&1; then
+# Check if Docker is running (try with and without sudo)
+if ! docker info > /dev/null 2>&1 && ! sudo docker info > /dev/null 2>&1; then
     echo "Docker is not running. Please start Docker and try again."
     exit 1
 fi
 
+# Use sudo for docker commands if needed
+DOCKER_CMD="docker"
+if ! docker info > /dev/null 2>&1; then
+    DOCKER_CMD="sudo docker"
+fi
+DOCKER_COMPOSE_CMD=""
+if docker compose version > /dev/null 2>&1; then
+    DOCKER_COMPOSE_CMD="docker compose"
+elif sudo docker compose version > /dev/null 2>&1; then
+    DOCKER_COMPOSE_CMD="sudo docker compose"
+elif docker-compose version > /dev/null 2>&1; then
+    DOCKER_COMPOSE_CMD="docker-compose"
+elif sudo docker-compose version > /dev/null 2>&1; then
+    DOCKER_COMPOSE_CMD="sudo docker-compose"
+fi
+
 # Check if Docker Compose is available
-if ! command -v docker-compose &> /dev/null; then
+if [ -z "$DOCKER_COMPOSE_CMD" ]; then
     echo "Docker Compose is not installed."
     exit 1
 fi
@@ -34,7 +52,7 @@ SERVICES=(redis n8n n8n-worker qdrant ollama ollama-init asr kokoro-tts deepface
 SKIPPED_SERVICES=()
 
 for SERVICE in "${SERVICES[@]}"; do
-    OUTPUT=$(docker-compose up -d "$SERVICE" 2>&1)
+    OUTPUT=$($DOCKER_COMPOSE_CMD up -d "$SERVICE" 2>&1)
     EXIT_CODE=$?
     if echo "$OUTPUT" | grep -qiE "port is already allocated|address already in use|bind:"; then
         echo "  WARNING: $SERVICE skipped -- port already in use"
@@ -80,13 +98,11 @@ if [ -n "$PYTHON_CMD" ]; then
     echo "  [OK] wake_word.py running in background"
 
     # Worker: FastAPI ingestion service (port 8000)
-    if [ -f worker/.env ]; then
-        (cd worker && nohup uvicorn app.main:app --host 0.0.0.0 --port 8000 >> ../logs/worker.log 2>&1 &)
-        echo "  [OK] worker started on http://localhost:8000"
-    else
-        echo "  WARNING: worker/.env not found -- skipping worker startup"
-        echo "           Copy env.example to worker/.env and add your OPENAI_API_KEY"
+    if [ ! -f worker/.env ]; then
+        echo "  WARNING: worker/.env not found -- embedding/vector storage will be skipped (add OPENAI_API_KEY to enable)"
     fi
+    (cd worker && nohup uvicorn app.main:app --host 0.0.0.0 --port 8000 >> ../logs/worker.log 2>&1 &)
+    echo "  [OK] worker started on http://localhost:8000"
 else
     echo "Python not found. Skipping local services (perception, TTS, ASR wake word, worker)."
 fi
@@ -119,5 +135,5 @@ echo "  Perception:  http://127.0.0.1:8089"
 echo "  TTS:         http://localhost:8001"
 echo ""
 echo "Logs: $SCRIPT_DIR/logs/"
-echo "To view Docker logs: docker-compose logs -f"
-echo "To stop:             docker-compose down"
+echo "To view Docker logs: $DOCKER_COMPOSE_CMD logs -f"
+echo "To stop:             $DOCKER_COMPOSE_CMD down"

@@ -1,5 +1,6 @@
 pvporcupine 
-sounddevice 
+sounddevice
+soundfile
 webrtcvad 
 numpy<2
 python-dotenv

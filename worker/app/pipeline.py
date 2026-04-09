@@ -37,8 +37,13 @@ class IngestionPipeline:
         # Create an httpx client explicitly and pass it to OpenAI to avoid
         # compatibility issues between openai library's expected httpx kwargs
         # and the httpx version provided in the image.
-        httpx_client = httpx.Client()
-        self.openai_client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"), http_client=httpx_client)
+        api_key = os.getenv("OPENAI_API_KEY")
+        if api_key:
+            httpx_client = httpx.Client()
+            self.openai_client = openai.OpenAI(api_key=api_key, http_client=httpx_client)
+        else:
+            logger.warning("OPENAI_API_KEY not set — embedding and vector storage will be skipped")
+            self.openai_client = None
         self.qdrant_client = QdrantClient(url=os.getenv("QDRANT_URL"))
         self.postgres_url = os.getenv("POSTGRES_URL")
         
@@ -288,36 +293,39 @@ class IngestionPipeline:
             chunks = chunk_text(document.text, self.tokenizer)
             logger.info(f"Chunked document {document.doc_id} into {len(chunks)} chunks")
             
-            # Generate embeddings for all chunks (use configured model)
-            chunk_texts = [chunk["text"] for chunk in chunks]
-            embeddings = await get_embedding(chunk_texts, self.openai_client, model=self.embedding_model)
-            
-            # Prepare points for Qdrant
-            points = []
-            for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
-                point = PointStruct(
-                    id=f"{document.doc_id}_{i}",
-                    vector=embedding,
-                    payload={
-                        "source": document.source,
-                        "doc_id": document.doc_id,
-                        "chunk_index": i,
-                        "title": document.title,
-                        "uri": document.uri,
-                        "author": document.author,
-                        "created_at": document.created_at,
-                        "updated_at": document.updated_at,
-                        "text": chunk["text"]
-                    }
+            if self.openai_client is None:
+                logger.warning(f"Skipping embedding/vector storage for {document.doc_id} — no OPENAI_API_KEY")
+            else:
+                # Generate embeddings for all chunks (use configured model)
+                chunk_texts = [chunk["text"] for chunk in chunks]
+                embeddings = await get_embedding(chunk_texts, self.openai_client, model=self.embedding_model)
+
+                # Prepare points for Qdrant
+                points = []
+                for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
+                    point = PointStruct(
+                        id=f"{document.doc_id}_{i}",
+                        vector=embedding,
+                        payload={
+                            "source": document.source,
+                            "doc_id": document.doc_id,
+                            "chunk_index": i,
+                            "title": document.title,
+                            "uri": document.uri,
+                            "author": document.author,
+                            "created_at": document.created_at,
+                            "updated_at": document.updated_at,
+                            "text": chunk["text"]
+                        }
+                    )
+                    points.append(point)
+
+                # Upsert to Qdrant
+                self.qdrant_client.upsert(
+                    collection_name=self.collection_name,
+                    points=points
                 )
-                points.append(point)
-            
-            # Upsert to Qdrant
-            self.qdrant_client.upsert(
-                collection_name=self.collection_name,
-                points=points
-            )
-            
+
             # Update Postgres with document metadata
             await self._update_document_metadata(document, content_hash, len(chunks))
             
@@ -521,18 +529,22 @@ class IngestionPipeline:
 
                 # Chunk the text
                 chunks = chunk_text(full_text, self.tokenizer)
-                
+
+                if self.openai_client is None:
+                    logger.warning(f"Skipping embedding/vector storage for session {sid} — no OPENAI_API_KEY")
+                    continue
+
                 # Generate embeddings
                 chunk_texts = [chunk["text"] for chunk in chunks]
                 embeddings = await get_embedding(chunk_texts, self.openai_client, model=self.embedding_model)
-                
+
                 # Prepare points
                 points = []
                 for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
                     # Create a unique ID for the vector point based on the last log ID involved or a UUID
                     # Using a UUID to avoid collisions
                     point_id = str(uuid.uuid4())
-                    
+
                     points.append(PointStruct(
                         id=point_id,
                         vector=embedding,
@@ -545,7 +557,7 @@ class IngestionPipeline:
                             "type": "chat_memory"
                         }
                     ))
-                
+
                 # Upsert to Qdrant
                 if points:
                     self.qdrant_client.upsert(
