@@ -64,6 +64,7 @@ if [ -n "$PYTHON_CMD" ]; then
     pip install -q -r TTS/requirements.txt
     pip install -q -r ASR/requirements.txt
     pip install -q -r perception/requirements.txt
+    pip install -q -r worker/requirements.txt
     echo "  [OK] Dependencies installed"
 
     # Perception: frame capture API (port 8089)
@@ -77,8 +78,17 @@ if [ -n "$PYTHON_CMD" ]; then
     # ASR: wake word listener
     nohup "$PYTHON_CMD" ASR/wake_word.py >> logs/wake_word.log 2>&1 &
     echo "  [OK] wake_word.py running in background"
+
+    # Worker: FastAPI ingestion service (port 8000)
+    if [ -f worker/.env ]; then
+        (cd worker && nohup uvicorn app.main:app --host 0.0.0.0 --port 8000 >> ../logs/worker.log 2>&1 &)
+        echo "  [OK] worker started on http://localhost:8000"
+    else
+        echo "  WARNING: worker/.env not found -- skipping worker startup"
+        echo "           Copy env.example to worker/.env and add your OPENAI_API_KEY"
+    fi
 else
-    echo "Python not found. Skipping local services (perception, TTS, ASR wake word)."
+    echo "Python not found. Skipping local services (perception, TTS, ASR wake word, worker)."
 fi
 
 # Non-blocking health checks (informational only)
