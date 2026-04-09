@@ -2,14 +2,16 @@
 
 # AtlasAI Startup Script - SPOT Robot AI System
 
-echo "Starting AtlasAI System for SPOT Robot..."
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+echo "Starting AtlasAI System..."
 
 # Check if .env file exists
 if [ ! -f .env ]; then
     echo ".env file not found. Creating from template..."
     cp env.example .env
-    echo "Please edit .env file with your configuration before continuing."
-    echo "   Required: OPENAI_API_KEY"
+    echo "Please edit .env with your configuration (Required: OPENAI_API_KEY)"
     exit 1
 fi
 
@@ -21,86 +23,91 @@ fi
 
 # Check if Docker Compose is available
 if ! command -v docker-compose &> /dev/null; then
-    echo "Docker Compose is not installed. Please install Docker Compose and try again."
+    echo "Docker Compose is not installed."
     exit 1
 fi
 
-echo "Starting services with Docker Compose..."
+echo "Starting Docker services..."
 
-# Start the services
-docker-compose up -d
+# Start each service individually so a port conflict on one does not block the others
+SERVICES=(redis n8n n8n-worker qdrant ollama ollama-init asr kokoro-tts deepface)
+SKIPPED_SERVICES=()
 
-echo "Waiting for services to be ready..."
+for SERVICE in "${SERVICES[@]}"; do
+    OUTPUT=$(docker-compose up -d "$SERVICE" 2>&1)
+    EXIT_CODE=$?
+    if echo "$OUTPUT" | grep -qiE "port is already allocated|address already in use|bind:"; then
+        echo "  WARNING: $SERVICE skipped -- port already in use"
+        SKIPPED_SERVICES+=("$SERVICE")
+    elif [ $EXIT_CODE -ne 0 ]; then
+        echo "  WARNING: $SERVICE failed to start -- $OUTPUT"
+        SKIPPED_SERVICES+=("$SERVICE")
+    else
+        echo "  [OK] $SERVICE started"
+    fi
+done
 
-# Wait for services to be healthy
-sleep 10
+if [ ${#SKIPPED_SERVICES[@]} -gt 0 ]; then
+    echo ""
+    echo "Skipped services (port conflicts or errors): ${SKIPPED_SERVICES[*]}"
+    echo ""
+fi
 
-# Start local Python APIs (perception, TTS, ASR wake word)
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
+# Start local Python APIs immediately (independent of Docker readiness)
+echo "Starting local Python services..."
+mkdir -p logs
 
-if command -v python &> /dev/null || command -v python3 &> /dev/null; then
-    PYTHON_CMD=$(command -v python 2>/dev/null || command -v python3)
-    echo "Starting local Python services..."
-    mkdir -p logs
+PYTHON_CMD=$(command -v python3 2>/dev/null || command -v python 2>/dev/null)
+
+if [ -n "$PYTHON_CMD" ]; then
+    echo "  Installing Python dependencies..."
+    pip install -q -r TTS/requirements.txt
+    pip install -q -r ASR/requirements.txt
+    pip install -q -r perception/requirements.txt
+    echo "  [OK] Dependencies installed"
 
     # Perception: frame capture API (port 8089)
     nohup "$PYTHON_CMD" perception/capture_frame.py >> logs/capture_frame.log 2>&1 &
-    echo "  • capture_frame.py (perception) -> http://127.0.0.1:8089"
+    echo "  [OK] capture_frame.py started on http://127.0.0.1:8089"
 
     # TTS: speaker API (port 8001)
     (cd TTS && nohup "$PYTHON_CMD" speaker_api.py >> ../logs/speaker_api.log 2>&1 &)
-    echo "  • speaker_api.py (TTS) -> http://0.0.0.0:8001"
+    echo "  [OK] speaker_api.py started on http://localhost:8001"
 
-    # ASR: wake word listener (runs until stopped)
+    # ASR: wake word listener
     nohup "$PYTHON_CMD" ASR/wake_word.py >> logs/wake_word.log 2>&1 &
-    echo "  • wake_word.py (ASR) running in background"
+    echo "  [OK] wake_word.py running in background"
 else
-    echo "Python not found. Skipping local APIs (perception, TTS, ASR wake word)."
+    echo "Python not found. Skipping local services (perception, TTS, ASR wake word)."
 fi
 
-# Check service health
+# Non-blocking health checks (informational only)
+echo ""
 echo "Checking service health..."
 
-# Check worker health
-if curl -f http://localhost:8000/health > /dev/null 2>&1; then
-    echo "Worker service is healthy"
+if curl -sf --max-time 3 http://localhost:6333/health > /dev/null 2>&1; then
+    echo "  [OK] Qdrant ready"
 else
-    echo "Worker service is not responding yet. It may take a few more minutes to start."
+    echo "  Qdrant -- not ready yet (may still be starting)"
 fi
 
-# Check PostgreSQL
-if docker-compose exec -T postgres pg_isready -U postgres > /dev/null 2>&1; then
-    echo "PostgreSQL is ready"
+if curl -sf --max-time 3 http://localhost:8000/health > /dev/null 2>&1; then
+    echo "  [OK] Worker ready"
 else
-    echo "PostgreSQL is not ready yet"
-fi
-
-# Check Qdrant
-if curl -f http://localhost:6333/health > /dev/null 2>&1; then
-    echo "Qdrant is ready"
-else
-    echo "Qdrant is not ready yet"
+    echo "  Worker -- not ready yet (may still be starting)"
 fi
 
 echo ""
-echo "AtlasAI System for SPOT Robot is starting up!"
+echo "AtlasAI is starting up!"
 echo ""
 echo "Service URLs:"
-echo "   • Worker API: http://localhost:8000"
-echo "   • API Docs: http://localhost:8000/docs"
-echo "   • n8n Interface: http://localhost:5678"
-echo "   • Qdrant Dashboard: http://localhost:6333/dashboard"
-echo "   • Perception (capture frame): http://127.0.0.1:8089"
-echo "   • TTS (speaker API): http://localhost:8001"
+echo "  Worker API:  http://localhost:8000"
+echo "  API Docs:    http://localhost:8000/docs"
+echo "  n8n:         http://localhost:5678"
+echo "  Qdrant:      http://localhost:6333/dashboard"
+echo "  Perception:  http://127.0.0.1:8089"
+echo "  TTS:         http://localhost:8001"
 echo ""
-echo "Next steps:"
-echo "   1. Configure your OpenAI API key in .env"
-echo "   2. Import n8n workflows from n8n/workflows/"
-echo "   3. Set up data source integrations"
-echo "   4. Test the API endpoints"
-echo ""
-echo "For more information, see README.md"
-echo ""
-echo "To view logs: docker-compose logs -f"
-echo "To stop services: docker-compose down"
+echo "Logs: $SCRIPT_DIR/logs/"
+echo "To view Docker logs: docker-compose logs -f"
+echo "To stop:             docker-compose down"

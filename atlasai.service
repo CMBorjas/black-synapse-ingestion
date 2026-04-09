@@ -1,0 +1,32 @@
+[Unit]
+Description=AtlasAI Robot System
+Documentation=https://github.com/Black-synapse-CU/black-synapse-ingestion
+After=docker.service network-online.target sound.target
+Requires=docker.service
+Wants=network-online.target sound.target
+
+[Service]
+Type=forking
+User=ATLASAI_USER
+Group=ATLASAI_USER
+WorkingDirectory=ATLASAI_DIR
+ExecStart=/bin/bash ATLASAI_DIR/start.sh
+ExecStop=/usr/bin/docker-compose down
+
+# Give Docker services and Python processes time to fully start
+TimeoutStartSec=120
+
+# Restart automatically if the service exits unexpectedly
+Restart=on-failure
+RestartSec=10
+
+# Log to journald (view with: journalctl -u atlasai -f)
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=atlasai
+
+# Needed so speaker_api / wake_word can access audio devices
+SupplementaryGroups=audio docker
+
+[Install]
+WantedBy=multi-user.target

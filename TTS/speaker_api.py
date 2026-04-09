@@ -45,15 +45,19 @@ _stop_event = threading.Event()
 def _init_pygame() -> None:
     global _pygame_initialized
     if not _pygame_initialized:
+        preferred_device = os.getenv("AUDIO_DEVICE", "Built-in Audio Digital Stereo (HDMI)")
         try:
-            # Optional: tune buffer/latency here if needed
-            pygame.mixer.init(devicename='Built-in Audio Digital Stereo (HDMI)')
-            _pygame_initialized = True
-        except pygame.error as e:
-            raise RuntimeError(
-                f"Failed to initialize pygame mixer: {e}. "
-                "Make sure audio drivers are available."
-            ) from e
+            pygame.mixer.init(devicename=preferred_device)
+        except pygame.error:
+            # Preferred device not available — fall back to system default
+            try:
+                pygame.mixer.init()
+            except pygame.error as e:
+                raise RuntimeError(
+                    f"Failed to initialize pygame mixer: {e}. "
+                    "Make sure audio drivers are available."
+                ) from e
+        _pygame_initialized = True
 
 
 def _ensure_tmp_dir() -> None:
@@ -238,7 +242,7 @@ async def interrupt():
 async def play_audio(
     background_tasks: BackgroundTasks,
     request: Request,
-    file: UploadFile | None = File(None),
+    file: Optional[UploadFile] = File(None),
     epoch: int = Query(..., description="Epoch token returned by /interrupt. Must match current epoch."),
 ):
     """

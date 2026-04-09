@@ -45,15 +45,17 @@ QR_STREAM_OVERLAY = os.getenv("QR_STREAM_OVERLAY", "true").lower() == "true"
 # DeepFace stream mode: when true, stream runs face analysis + identification (heavy).
 # When false, uses simple capture loop — inference only via n8n Perception workflow.
 DEEPFACE_STREAM = os.getenv("DEEPFACE_STREAM", "true").lower() == "true"
-STREAM_FRAME_THRESHOLD = int(os.getenv("STREAM_FRAME_THRESHOLD", "5"))
+STREAM_FRAME_THRESHOLD = int(os.getenv("STREAM_FRAME_THRESHOLD", "1"))
 STREAM_TIME_THRESHOLD = int(os.getenv("STREAM_TIME_THRESHOLD", "5"))
 # Decoupled DeepFace mode: capture/composer runs at PREVIEW_FPS; analysis runs every ANALYSIS_INTERVAL.
 PREVIEW_FPS = int(os.getenv("PREVIEW_FPS", "30"))
 ANALYSIS_INTERVAL = float(os.getenv("ANALYSIS_INTERVAL", "0.12"))
 # Distant faces produce small boxes (pixels); the old default 130 filtered most of them out.
 FACE_MIN_WIDTH = int(os.getenv("FACE_MIN_WIDTH", "48"))
-# DeepFace detector backends: opencv (fast, weak on tiny faces), retinaface, mtcnn, ssd, mediapipe, yunet, ...
-DEEPFACE_DETECTOR_BACKEND = os.getenv("DEEPFACE_DETECTOR_BACKEND", "opencv").strip() or "opencv"
+# DeepFace detector backends: yunet (fast DNN), opencv (Haar cascade), retinaface, mtcnn, ssd, mediapipe, ...
+DEEPFACE_DETECTOR_BACKEND = os.getenv("DEEPFACE_DETECTOR_BACKEND", "yunet").strip() or "yunet"
+# Scale factor applied to frames before face detection (smaller = faster detection, coords scaled back up).
+DETECTION_SCALE = float(os.getenv("DETECTION_SCALE", "0.5"))
 
 # State storage: JSON file (default) or Redis
 STATE_BACKEND = os.getenv("STATE_BACKEND", "file")
@@ -83,9 +85,9 @@ PROACTIVE_STATE_FILE = os.getenv(
     "PROACTIVE_STATE_FILE",
     str(Path(__file__).resolve().parent.parent / "proactive_state.json"),
 )
-SIMILARITY_THRESHOLD = float(os.getenv("SIMILARITY_THRESHOLD", "0.38"))
+SIMILARITY_THRESHOLD = float(os.getenv("SIMILARITY_THRESHOLD", "0.65"))
 CLEAR_PRIMARY_RATIO = float(os.getenv("CLEAR_PRIMARY_RATIO", "1.5"))  # Primary face must be this many times larger than second
-MERGE_SIMILARITY_THRESHOLD = float(os.getenv("MERGE_SIMILARITY_THRESHOLD", "0.35"))  # Merge user_N into name if above this
+MERGE_SIMILARITY_THRESHOLD = float(os.getenv("MERGE_SIMILARITY_THRESHOLD", "0.62"))  # Merge user_N into name if above this
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "Facenet512")
 MAX_EMBEDDINGS_PER_USER = int(os.getenv("MAX_EMBEDDINGS_PER_USER", "20"))
 _embeddings_lock = threading.Lock()
@@ -299,7 +301,7 @@ def _save_embeddings(data: dict):
     p.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
-def _match_embedding(emb: np.ndarray, add_if_unknown: bool = True) -> tuple[str, float]:
+def _match_embedding(emb: np.ndarray, add_if_unknown: bool = True) -> Tuple[str, float]:
     """
     Match embedding against stored embeddings. Caller must hold _embeddings_lock.
     Returns (user_id, confidence). Optionally adds new embedding for unknown faces.
@@ -349,7 +351,7 @@ def _match_embedding(emb: np.ndarray, add_if_unknown: bool = True) -> tuple[str,
     return "Unknown", 0.0
 
 
-def _identify_by_embedding(face_img: np.ndarray, add_if_unknown: bool = True, detector_backend: str = "skip") -> tuple[str, float]:
+def _identify_by_embedding(face_img: np.ndarray, add_if_unknown: bool = True, detector_backend: str = "skip") -> Tuple[str, float]:
     """
     Match face embedding against stored embeddings (single face).
     Returns (user_id, confidence). Uses Facenet512 by default.
@@ -510,18 +512,22 @@ def _grab_facial_areas(
     if df is None:
         return []
     try:
+        # Downscale for faster detection, then scale coordinates back up
+        scale = DETECTION_SCALE
+        small = cv2.resize(img, (0, 0), fx=scale, fy=scale) if scale != 1.0 else img
         with _deepface_lock:
             face_objs = df.extract_faces(
-                img_path=img,
+                img_path=small,
                 detector_backend=db,
                 expand_percentage=0,
                 enforce_detection=False,
             )
+        inv = 1.0 / scale
         return [
-            (int(f["facial_area"]["x"]), int(f["facial_area"]["y"]),
-             int(f["facial_area"]["w"]), int(f["facial_area"]["h"]))
+            (int(f["facial_area"]["x"] * inv), int(f["facial_area"]["y"] * inv),
+             int(f["facial_area"]["w"] * inv), int(f["facial_area"]["h"] * inv))
             for f in face_objs
-            if f["facial_area"]["w"] > min_w
+            if f["facial_area"]["w"] * inv > min_w
         ]
     except Exception:
         return []

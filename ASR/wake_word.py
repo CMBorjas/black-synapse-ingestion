@@ -7,8 +7,24 @@ import sounddevice as sd
 import numpy as np
 import wave
 import time
+import os
+import urllib.request
 from openwakeword import Model
 import openwakeword
+
+SPEAKER_API_URL = os.getenv("SPEAKER_API_URL", "http://localhost:8001")
+
+def _interrupt_speaker():
+    """Fire-and-forget interrupt to the speaker API."""
+    try:
+        req = urllib.request.Request(
+            f"{SPEAKER_API_URL}/interrupt",
+            data=b"",
+            method="POST"
+        )
+        urllib.request.urlopen(req, timeout=1.0).close()
+    except Exception:
+        pass  # Non-critical — recording continues regardless
 
 SAMPLE_RATE = 16000
 # OpenWakeWord processes audio in chunks (typically 1280 samples = 80ms at 16kHz)
@@ -69,7 +85,8 @@ def record_after_wake():
                 prediction[wake_word_name] > WAKE_WORD_THRESHOLD):
                 
                 last_detection_time = current_time
-                print("[Wake word detected!] Recording...")
+                print("[Wake word detected!] Interrupting speaker and recording...")
+                _interrupt_speaker()
                 frames = []
                 silence_counter = 0
                 # Buffer for VAD processing (need 30ms frames for VAD)
