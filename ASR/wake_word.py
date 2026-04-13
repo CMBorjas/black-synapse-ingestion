@@ -4,12 +4,32 @@
 
 import webrtcvad
 import sounddevice as sd
+import soundfile as sf
 import numpy as np
 import wave
 import time
+import os
+import random
+import urllib.request
 from pathlib import Path
-
 from openwakeword import Model
+import openwakeword
+
+WAKE_SOUNDS_DIR = Path(__file__).parent / "wake_sounds"
+
+SPEAKER_API_URL = os.getenv("SPEAKER_API_URL", "http://localhost:8001")
+
+def _interrupt_speaker():
+    """Fire-and-forget interrupt to the speaker API."""
+    try:
+        req = urllib.request.Request(
+            f"{SPEAKER_API_URL}/interrupt",
+            data=b"",
+            method="POST"
+        )
+        urllib.request.urlopen(req, timeout=1.0).close()
+    except Exception:
+        pass  # Non-critical — recording continues regardless
 
 SAMPLE_RATE = 16000
 # OpenWakeWord processes audio in chunks (typically 1280 samples = 80ms at 16kHz)
@@ -18,39 +38,58 @@ OWW_FRAME_LENGTH = 1280
 # VAD frame size (30ms for optimal VAD performance)
 VAD_FRAME_DURATION_MS = 30
 VAD_FRAME_SIZE = int(SAMPLE_RATE * VAD_FRAME_DURATION_MS / 1000)
-SILENCE_FRAMES = int(800 / VAD_FRAME_DURATION_MS)
+SILENCE_DURATION_MS = int(os.getenv("SILENCE_DURATION_MS", "1800"))
+SILENCE_FRAMES = int(SILENCE_DURATION_MS / VAD_FRAME_DURATION_MS)
 OUTPUT_WAV = "utterance.wav"
 # Detection threshold for wake word (adjust between 0.0 and 1.0)
 WAKE_WORD_THRESHOLD = 0.5
 # Cooldown period after detection (seconds) - prevents immediate re-detection
 COOLDOWN_SECONDS = 2.0
 
-# Local OpenWakeWord ONNX; prediction dict key is the stem (e.g. "Atlas").
-ATLAS_ONNX = Path(__file__).resolve().parent / "models" / "Atlas.onnx"
+def _play_wake_chime():
+    """Play a random acknowledgment phrase from ASR/wake_sounds/. Falls back to a simple chime if none found."""
+    sound_files = list(WAKE_SOUNDS_DIR.glob("*.wav")) + list(WAKE_SOUNDS_DIR.glob("*.mp3"))
+    if sound_files:
+        try:
+            chosen = random.choice(sound_files)
+            audio, sample_rate = sf.read(str(chosen), dtype="float32")
+            sd.play(audio, samplerate=sample_rate, blocking=True)
+            return
+        except Exception:
+            pass  # Fall through to chime
+    # Fallback: two-tone chime
+    try:
+        duration = 0.08
+        t = np.linspace(0, duration, int(SAMPLE_RATE * duration), endpoint=False)
+        fade = np.linspace(0.0, 1.0, int(SAMPLE_RATE * 0.01))
+        tone1 = (0.35 * np.sin(2 * np.pi * 880 * t)).astype(np.float32)
+        tone2 = (0.35 * np.sin(2 * np.pi * 1320 * t)).astype(np.float32)
+        tone1[:len(fade)] *= fade
+        tone2[:len(fade)] *= fade
+        tone1[-len(fade):] *= fade[::-1]
+        tone2[-len(fade):] *= fade[::-1]
+        sd.play(np.concatenate([tone1, tone2]), samplerate=SAMPLE_RATE, blocking=True)
+    except Exception:
+        pass
 
 
 def is_speech(frame, vad):
     return vad.is_speech(frame.tobytes(), SAMPLE_RATE)
 
-
-def _load_wake_model() -> Model:
-    if not ATLAS_ONNX.is_file():
-        raise FileNotFoundError(f"Wake word ONNX not found: {ATLAS_ONNX}")
-    return Model(
-        wakeword_models=[str(ATLAS_ONNX)],
-        inference_framework="onnx",
-    )
-
-
 def record_after_wake():
     oww_model = None
     stream = None
-    wake_word_name = ATLAS_ONNX.stem
-
+    
     try:
-        oww_model = _load_wake_model()
+        # Initialize OpenWakeWord model
+        openwakeword.utils.download_models()
+
+        # Available models: "alexa", "hey_jarvis", "hey_mycroft", "hey_porcupine", "hey_rhasspy", "hey_spot", "hey_raven", "timer"
+        # Using "hey_jarvis" as it's closest to "Jarvis"
+        oww_model = Model(wakeword_models=["hey jarvis"],)
+        wake_word_name = "hey jarvis"
     except Exception as e:
-        raise RuntimeError(f"OpenWakeWord initialization error: {e}") from e
+        raise RuntimeError(f"OpenWakeWord initialization error: {e}")
     
     vad = webrtcvad.Vad(2)
     # Use OpenWakeWord's recommended frame length for the stream
@@ -58,22 +97,16 @@ def record_after_wake():
     
     try:
         stream.start()
-        print(f"[Listening for wake word '{wake_word_name}' ({ATLAS_ONNX.name})]")
+        print("[Listening for wake word 'hey jarvis']")
         
         last_detection_time = 0.0  # Track when last wake word was detected
         cooldown_frames_to_flush = int(COOLDOWN_SECONDS * SAMPLE_RATE / OWW_FRAME_LENGTH)  # Frames to flush during cooldown
 
         while True:
             pcm = stream.read(OWW_FRAME_LENGTH)[0].flatten()
-
+            
             # Process audio through OpenWakeWord
-            try:
-                prediction = oww_model.predict(pcm)
-            except MemoryError:
-                print("[MemoryError in wake word model — reinitializing...]")
-                oww_model = _load_wake_model()
-                prediction = {}
-                continue
+            prediction = oww_model.predict(pcm)
             
             # Check if we're in cooldown period
             current_time = time.time()
@@ -85,7 +118,9 @@ def record_after_wake():
                 prediction[wake_word_name] > WAKE_WORD_THRESHOLD):
                 
                 last_detection_time = current_time
-                print("[Wake word detected!] Recording...")
+                print("[Wake word detected!] Interrupting speaker and recording...")
+                _interrupt_speaker()
+                _play_wake_chime()
                 frames = []
                 silence_counter = 0
                 # Buffer for VAD processing (need 30ms frames for VAD)
@@ -128,8 +163,6 @@ def record_after_wake():
                 for _ in range(cooldown_frames_to_flush):
                     oww_model.predict(silence_frame)
                 
-                # Reinitialize model to clear accumulated internal buffers (prevents MemoryError on long runs)
-                oww_model = _load_wake_model()
                 print("[Resuming wake word detection...]\n")
                 # Continue listening for next wake word (don't break)
     finally:

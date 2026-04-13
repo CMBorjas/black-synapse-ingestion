@@ -9,14 +9,14 @@
       "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
       "typeVersion": 1,
       "position": [
-        -304,
-        992
+        -544,
+        1024
       ],
-      "id": "5370ec55-425f-4492-b43f-ed9374276848",
+      "id": "28fe0243-04fb-421b-9e8b-30ef25c6f468",
       "name": "Ollama Chat Model",
       "credentials": {
         "ollamaApi": {
-          "id": "PRBswlHkOo3NGyVP",
+          "id": "AwGMI8niI1XmeTCb",
           "name": "Ollama account"
         }
       }
@@ -32,45 +32,31 @@
       "type": "@n8n/n8n-nodes-langchain.agent",
       "typeVersion": 3,
       "position": [
-        -304,
-        736
+        0,
+        944
       ],
-      "id": "ebad33aa-2dd2-4995-94f6-41428c11470d",
+      "id": "13ac7e6d-1a5f-48b7-87b8-9f79a05f28d1",
       "name": "VLM - Moondream",
       "alwaysOutputData": false
     },
     {
       "parameters": {
-        "url": "http://host.docker.internal:8089/stream-faces",
+        "url": "http://172.17.0.1:8089/latest",
         "options": {}
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.3,
       "position": [
-        -272,
-        16
+        -384,
+        352
       ],
-      "id": "0cb1747e-650c-4794-af3f-8214cd23c46e",
-      "name": "Stream Faces (local)"
-    },
-    {
-      "parameters": {
-        "url": "http://host.docker.internal:8089/latest",
-        "options": {}
-      },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.3,
-      "position": [
-        -688,
-        144
-      ],
-      "id": "d47844fa-f7ed-4d21-8a13-4946d5822f93",
+      "id": "023b7e2f-0fa4-4c11-841e-24b9fec8d10c",
       "name": "Capture Frame"
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "http://host.docker.internal:8089/identify-multi",
+        "url": "http://172.17.0.1:8089/identify-multi",
         "sendBody": true,
         "contentType": "multipart-form-data",
         "bodyParameters": {
@@ -87,10 +73,10 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.3,
       "position": [
-        -256,
-        304
+        48,
+        512
       ],
-      "id": "54303efa-31ab-4082-a4c1-ecd5d5fbe783",
+      "id": "32511870-d5a3-4bde-be37-4a178e098104",
       "name": "Identify Faces"
     },
     {
@@ -102,10 +88,10 @@
       "type": "n8n-nodes-base.merge",
       "typeVersion": 3,
       "position": [
-        80,
-        144
+        384,
+        352
       ],
-      "id": "1d1980ce-b244-4ab3-a251-a56daed9172d",
+      "id": "fbe02d35-60ff-4acf-bea8-80850e8225cd",
       "name": "Merge 1"
     },
     {
@@ -117,29 +103,29 @@
       "type": "n8n-nodes-base.merge",
       "typeVersion": 3,
       "position": [
-        304,
-        272
+        608,
+        480
       ],
-      "id": "29016ff2-5d19-430c-b43e-245a5ec57915",
+      "id": "f9705eb8-20fb-4df3-a5b6-04c398534a07",
       "name": "Merge 2"
     },
     {
       "parameters": {
-        "jsCode": "const stream = $node[\"Stream Faces (local)\"].json;\nconst identifyMulti = $node[\"Identify Faces\"].json;\nconst moondream = $node[\"VLM - Moondream\"].json;\n\nconst streamFaces = Array.isArray(stream?.faces) ? stream.faces : [];\nconst identities = identifyMulti?.identities || [];\nconst sceneCaption = moondream?.output || \"No scene description available.\";\n\nconst faces = [];\nif (streamFaces.length > 0) {\n  streamFaces.forEach((f, i) => {\n    faces.push({\n      name: f.name || identities[i]?.name || \"Unknown\",\n      emotion: f.emotion ?? \"neutral\",\n      age: f.age ?? null,\n      gender: f.gender ?? null,\n      confidence: f.confidence ?? identities[i]?.confidence ?? 0,\n    });\n  });\n} else if (identities.length > 0) {\n  identities.forEach((id) =>\n    faces.push({ name: id.name, emotion: null, age: null, gender: null, confidence: id.confidence }),\n  );\n} else {\n  faces.push({ name: \"Unknown\", emotion: null, age: null, gender: null, confidence: 0 });\n}\n\nreturn {\n  faces,\n  scene_caption: sceneCaption,\n  updated_at: Date.now() / 1000,\n};"
+        "jsCode": "const item = $input.first().json;\nconst streamFaces = Array.isArray(item.faces) ? item.faces : [];\nconst identities = Array.isArray(item.identities) ? item.identities : [];\nconst sceneCaption =\n  item.output ??\n  item.scene_caption ??\n  \"No scene description available.\";\nconst faces = [];\nif (streamFaces.length > 0) {\n  streamFaces.forEach((f, i) => {\n    faces.push({\n      name: f.name || identities[i]?.name || \"Unknown\",\n      emotion: f.emotion ?? \"neutral\",\n      age: f.age ?? null,\n      gender: f.gender ?? null,\n      confidence: f.confidence ?? identities[i]?.confidence ?? 0,\n    });\n  });\n} else if (identities.length > 0) {\n  identities.forEach((id) => {\n    faces.push({\n      name: id.name,\n      emotion: null,\n      age: null,\n      gender: null,\n      confidence: id.confidence,\n    });\n  });\n} else {\n  faces.push({\n    name: \"Unknown\",\n    emotion: null,\n    age: null,\n    gender: null,\n    confidence: 0,\n  });\n}\nreturn {\n  faces,\n  scene_caption: sceneCaption,\n  updated_at: Date.now() / 1000,\n};"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        544,
-        272
+        848,
+        480
       ],
-      "id": "1e174439-8b79-407f-afad-20c35c9a87b1",
+      "id": "06ee77ff-9f59-4794-a686-300d1593b5f5",
       "name": "Build State JSON"
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "http://host.docker.internal:8089/state",
+        "url": "http://172.17.0.1:8089/state",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ faces: $json.faces, scene_caption: $json.scene_caption, updated_at: $json.updated_at }) }}",
@@ -148,23 +134,23 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.3,
       "position": [
-        768,
-        272
+        1072,
+        480
       ],
-      "id": "dea10f21-bebb-4fd1-8345-7324c5318a8f",
+      "id": "e5a1b2bd-434a-4ab5-bd4c-1d5aeb4d7ca2",
       "name": "Save State"
     },
     {
       "parameters": {
-        "content": "## Stream Faces (local)\nGET /stream-faces from perception (DeepFace stream loop, no Docker)"
+        "content": "## DeepFace\nDetect face, analyze emotion, age, gender"
       },
       "type": "n8n-nodes-base.stickyNote",
       "position": [
-        -304,
-        -208
+        0,
+        0
       ],
       "typeVersion": 1,
-      "id": "dc6c832a-58d7-49a1-aabb-135791fe0a4f",
+      "id": "ded5f662-8469-4a29-af8e-02a25d1515bc",
       "name": "Sticky Note"
     },
     {
@@ -173,11 +159,11 @@
       },
       "type": "n8n-nodes-base.stickyNote",
       "position": [
-        -336,
-        1136
+        -32,
+        1344
       ],
       "typeVersion": 1,
-      "id": "cf4a3033-76a9-4238-bb66-9c877c42065d",
+      "id": "0964bf88-e809-4af3-97cd-ebdcf72b5300",
       "name": "Sticky Note1"
     },
     {
@@ -187,11 +173,11 @@
       },
       "type": "n8n-nodes-base.stickyNote",
       "position": [
-        -304,
-        480
+        0,
+        688
       ],
       "typeVersion": 1,
-      "id": "f0b210bf-8ed4-47b9-960a-4bcf0203fdbe",
+      "id": "0d363175-60a8-4604-80ae-bcfbeba4c68d",
       "name": "Sticky Note2"
     },
     {
@@ -200,11 +186,11 @@
       },
       "type": "n8n-nodes-base.stickyNote",
       "position": [
-        704,
-        80
+        1008,
+        288
       ],
       "typeVersion": 1,
-      "id": "c691e14d-6aee-4297-8715-8204db5e51d2",
+      "id": "11e57f14-a569-4a15-84af-41d598890b7f",
       "name": "Sticky Note3"
     },
     {
@@ -214,10 +200,10 @@
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
       "position": [
-        -912,
-        400
+        -608,
+        608
       ],
-      "id": "7a2f4c90-6617-4e6f-b277-23851d9342fc",
+      "id": "a9891c40-5eee-4331-86fd-0084dcace2b9",
       "name": "When Executed by Another Workflow"
     },
     {
@@ -234,24 +220,52 @@
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
       "position": [
-        -928,
-        144
+        -624,
+        352
       ],
-      "id": "940d7671-d209-4063-8177-5d418e6a47b6",
+      "id": "348d177e-fee8-42c7-9b44-abafdb580d55",
       "name": "Schedule (every 7s)"
+    },
+    {
+      "parameters": {
+        "url": "http://172.17.0.1:8089/stream-faces",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        48,
+        240
+      ],
+      "id": "3f6b9656-d6df-4afd-9b48-013342a80739",
+      "name": "Stream Faces (local)1"
+    },
+    {
+      "parameters": {
+        "model": "gpt-4.1-mini",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatAzureOpenAi",
+      "typeVersion": 1,
+      "position": [
+        0,
+        1120
+      ],
+      "id": "e172a3c7-577a-4c77-8eab-8516201a1ecc",
+      "name": "Azure OpenAI Chat Model",
+      "credentials": {
+        "azureOpenAiApi": {
+          "id": "Ko2Q2Nobq7qn6mb2",
+          "name": "Azure Open AI account"
+        }
+      }
     }
   ],
   "pinData": {},
   "connections": {
     "Ollama Chat Model": {
       "ai_languageModel": [
-        [
-          {
-            "node": "VLM - Moondream",
-            "type": "ai_languageModel",
-            "index": 0
-          }
-        ]
+        []
       ]
     },
     "VLM - Moondream": {
@@ -261,17 +275,6 @@
             "node": "Merge 2",
             "type": "main",
             "index": 1
-          }
-        ]
-      ]
-    },
-    "Stream Faces (local)": {
-      "main": [
-        [
-          {
-            "node": "Merge 1",
-            "type": "main",
-            "index": 0
           }
         ]
       ]
@@ -291,17 +294,17 @@
       "main": [
         [
           {
-            "node": "Stream Faces (local)",
-            "type": "main",
-            "index": 0
-          },
-          {
             "node": "Identify Faces",
             "type": "main",
             "index": 0
           },
           {
             "node": "VLM - Moondream",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Stream Faces (local)1",
             "type": "main",
             "index": 0
           }
@@ -362,17 +365,40 @@
           }
         ]
       ]
+    },
+    "Stream Faces (local)1": {
+      "main": [
+        [
+          {
+            "node": "Merge 1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Azure OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "VLM - Moondream",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
-  "active": false,
+  "active": true,
   "settings": {
-    "executionOrder": "v1"
+    "executionOrder": "v1",
+    "binaryMode": "separate"
   },
-  "versionId": "7024346f-4469-448c-8426-4fda9bcb1588",
+  "versionId": "a6a779c3-d08a-4868-9de0-34fab68c1f43",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "cf62c18d1d7d43f57771f2639fa7581d7f4995b1fc54b37462680c04da0cf259"
   },
-  "id": "bQySjhmvT3I9JYUv",
+  "id": "X0IdNLMJeI4eJskP",
   "tags": []
 }

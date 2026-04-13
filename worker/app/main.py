@@ -12,6 +12,7 @@ from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, F
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
+import httpx
 
 from .pipeline import IngestionPipeline
 from .utils import setup_logging
@@ -45,6 +46,13 @@ app.add_middleware(
 
 # Initialize ingestion pipeline
 pipeline = IngestionPipeline()
+
+# Service URLs for acknowledge endpoint
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qcwind/qwen2.5-7B-instruct-Q4_K_M:latest")
+KOKORO_URL = os.getenv("KOKORO_URL", "http://localhost:8880")
+KOKORO_VOICE = os.getenv("KOKORO_VOICE", "af_heart")
+SPEAKER_URL = os.getenv("SPEAKER_URL", "http://localhost:8001")
 
 # Pydantic models for API requests/responses
 class DocumentPayload(BaseModel):
@@ -499,6 +507,86 @@ async def consolidate_memory(
     except Exception as e:
         logger.error(f"Error eliminating chat memory: {e}")
         raise HTTPException(status_code=500, detail=f"Consolidation failed: {str(e)}")
+class AcknowledgeRequest(BaseModel):
+    """Request schema for intermediate voice acknowledgment."""
+    message: str = Field(..., description="The user's message to acknowledge")
+
+
+@app.post("/acknowledge")
+async def acknowledge(request: AcknowledgeRequest, background_tasks: BackgroundTasks):
+    """
+    Generate and speak a brief contextual acknowledgment while the main agent runs.
+
+    Flow:
+      1. Ask Ollama to produce a single natural sentence acknowledging the user's message
+      2. Interrupt the speaker (get current epoch)
+      3. Synthesize audio via Kokoro TTS
+      4. Play it non-blocking via the speaker API
+      5. Return immediately so n8n can proceed to the main agent
+
+    The audio plays in the background while the main agent uses its tools.
+    """
+    _SYSTEM_PROMPT = (
+        "You are generating a brief spoken acknowledgment for Lynx, an AI robot assistant. "
+        "Given the user's message, output ONE short conversational sentence (under 15 words) "
+        "that naturally acknowledges what you are about to help with. "
+        "Reference the subject of their request. "
+        "Be warm and natural. Output only the sentence — no quotes, no explanation."
+    )
+
+    async def _speak_acknowledgment(text: str) -> None:
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                # Get current epoch by interrupting (stops any ongoing speech)
+                interrupt_resp = await client.post(f"{SPEAKER_URL}/interrupt")
+                epoch = interrupt_resp.json().get("epoch", 0)
+
+                # Synthesize audio
+                tts_resp = await client.post(
+                    f"{KOKORO_URL}/v1/audio/speech",
+                    json={"model": "kokoro", "input": text, "voice": KOKORO_VOICE,
+                          "response_format": "wav", "speed": 1.2, "stream": False},
+                )
+                tts_resp.raise_for_status()
+                audio_bytes = tts_resp.content
+
+                # Play (non-blocking on the speaker side)
+                await client.post(
+                    f"{SPEAKER_URL}/play",
+                    params={"epoch": epoch},
+                    content=audio_bytes,
+                    headers={"Content-Type": "audio/wav"},
+                )
+        except Exception as e:
+            logger.warning("Acknowledge speak failed: %s", e)
+
+    # Generate acknowledgment text from Ollama
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                f"{OLLAMA_URL}/api/chat",
+                json={
+                    "model": OLLAMA_MODEL,
+                    "messages": [
+                        {"role": "system", "content": _SYSTEM_PROMPT},
+                        {"role": "user", "content": request.message},
+                    ],
+                    "stream": False,
+                    "options": {"num_predict": 40, "temperature": 0.7},
+                },
+            )
+            resp.raise_for_status()
+            acknowledgment = resp.json()["message"]["content"].strip().strip('"')
+    except Exception as e:
+        logger.warning("Ollama acknowledgment generation failed: %s", e)
+        acknowledgment = "Got it, let me look into that for you."
+
+    # Speak in background — returns immediately so n8n proceeds to the main agent
+    background_tasks.add_task(_speak_acknowledgment, acknowledgment)
+
+    return {"acknowledgment": acknowledgment, "status": "speaking"}
+
+
 if __name__ == "__main__":
     import uvicorn
     

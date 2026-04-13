@@ -1,7 +1,8 @@
 pvporcupine 
-sounddevice 
+sounddevice
+soundfile
 webrtcvad 
-numpy
+numpy<2
 python-dotenv
 fastapi
 uvicorn
