@@ -1,3 +1,5 @@
+name: synapse
+
 services:
   redis:
     image: redis:7
