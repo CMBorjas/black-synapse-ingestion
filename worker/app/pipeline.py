@@ -228,32 +228,28 @@ class IngestionPipeline:
             chunk_texts = [chunk["text"] for chunk in chunks]
             embeddings = await get_embedding(chunk_texts, self.ollama_host, model=self.embedding_model)
             
-            # Prepare points for Qdrant
-            points = []
-            for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
-                point = PointStruct(
-                    id=f"{document.doc_id}_{i}",
-                    vector=embedding,
-                    payload={
-                        "source": document.source,
-                        "doc_id": document.doc_id,
-                        "chunk_index": i,
-                        "title": document.title,
-                        "uri": document.uri,
-                        "author": document.author,
-                        "created_at": document.created_at,
-                        "updated_at": document.updated_at,
-                        "text": chunk["text"]
-                    }
-                )
-                points.append(point)
-            
-            # Upsert to Qdrant
-            target_collection = collection_override if collection_override else self.collection_name
-            self.qdrant_client.upsert(
-                collection_name=target_collection,
-                points=points
-            )
+            # Upsert to Postgres pgvector
+            with psycopg2.connect(self.postgres_url) as conn:
+                with conn.cursor() as cur:
+                    for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
+                        metadata_json = json.dumps({
+                            "source": document.source,
+                            "doc_id": document.doc_id,
+                            "chunk_index": i,
+                            "title": document.title,
+                            "uri": document.uri,
+                            "author": document.author,
+                            "created_at": document.created_at,
+                            "updated_at": document.updated_at
+                        })
+                        cur.execute(
+                            '''
+                            INSERT INTO document_chunks (doc_id, chunk_index, text, embedding, metadata)
+                            VALUES (%s, %s, %s, %s::vector, %s)
+                            ''',
+                            (document.doc_id, i, chunk["text"], str(embedding), metadata_json)
+                        )
+                    conn.commit()
             
             # Update Postgres with document metadata
             await self._update_document_metadata(document, content_hash, len(chunks))
@@ -484,31 +480,28 @@ class IngestionPipeline:
                     # Generate embeddings via Ollama
                     embeddings = await get_embedding(chunk_texts, self.ollama_host, model=self.embedding_model)
                     
-                    # Prepare Qdrant points
-                    points = []
-                    for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
-                        import uuid
-                        point_id = str(uuid.uuid4())
-                        points.append(PointStruct(
-                            id=point_id,
-                            vector=embedding,
-                            payload={
-                                "session_id": sid,
-                                "day": day,
-                                "hour": hour,
-                                "text": chunk["text"],
-                                "timestamp_start": context_logs[0]['timestamp'].isoformat(),
-                                "timestamp_end": context_logs[-1]['timestamp'].isoformat(),
-                                "log_ids": [l['id'] for l in bucket_logs], # Only track the newly indexed ones
-                                "type": "chat_memory_hierarchy"
-                            }
-                        ))
-                    
-                    if points:
-                        self.qdrant_client.upsert(
-                            collection_name=self.chat_collection_name,
-                            points=points
-                        )
+                    # Upsert to Postgres pgvector
+                    if embeddings:
+                        with psycopg2.connect(self.postgres_url) as conn:
+                            with conn.cursor() as cur:
+                                for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
+                                    metadata_json = json.dumps({
+                                        "session_id": sid,
+                                        "day": day,
+                                        "hour": hour,
+                                        "timestamp_start": context_logs[0]['timestamp'].isoformat(),
+                                        "timestamp_end": context_logs[-1]['timestamp'].isoformat(),
+                                        "log_ids": [l['id'] for l in bucket_logs],
+                                        "type": "chat_memory_hierarchy"
+                                    })
+                                    cur.execute(
+                                        '''
+                                        INSERT INTO chat_memory_chunks (session_id, text, embedding, metadata)
+                                        VALUES (%s, %s, %s::vector, %s)
+                                        ''',
+                                        (sid, chunk["text"], str(embedding), metadata_json)
+                                    )
+                                conn.commit()
                     
                     processed_count += len(bucket_logs)
                     ids_to_mark_indexed.extend([l['id'] for l in bucket_logs])
