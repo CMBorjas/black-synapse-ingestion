@@ -33,11 +33,11 @@ def record_after_wake():
     
     try:
         # Initialize OpenWakeWord model
-        openwakeword.utils.download_models()
-
         # Available models: "alexa", "hey_jarvis", "hey_mycroft", "hey_porcupine", "hey_rhasspy", "hey_spot", "hey_raven", "timer"
         # Using "hey_jarvis" as it's closest to "Jarvis"
-        oww_model = Model(wakeword_models=["hey jarvis"],)
+        models = openwakeword.get_pretrained_model_paths()
+        jarvis_model = [m for m in models if 'jarvis' in m][0]
+        oww_model = Model(wakeword_model_paths=[jarvis_model])
         wake_word_name = "hey jarvis"
     except Exception as e:
         raise RuntimeError(f"OpenWakeWord initialization error: {e}")

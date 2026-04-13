@@ -19,8 +19,6 @@ import json
 
 # Removed openai dependency
 import httpx
-from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams, PointStruct
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import tiktoken
@@ -38,16 +36,10 @@ class IngestionPipeline:
         # compatibility issues between openai library's expected httpx kwargs
         # and the httpx version provided in the image.
         self.ollama_host = os.getenv("OLLAMA_URL", "http://ollama:11434")
-        self.qdrant_client = QdrantClient(url=os.getenv("QDRANT_URL"))
         self.postgres_url = os.getenv("POSTGRES_URL")
         
         # Initialize tokenizer for chunking
         self.tokenizer = tiktoken.get_encoding("cl100k_base")
-        
-        # Collection name for Qdrant
-        self.collection_name = "atlasai_documents"
-        self.chat_collection_name = "atlasai_chat_memory"
-        self.profile_collection_name = "atlasai_profiles"
         
         #Embedding model and vector dimension (configurable via env)
         # Supported models:
@@ -78,9 +70,6 @@ class IngestionPipeline:
     async def _initialize(self):
         """Initialize database connections and create collections if needed."""
         try:
-            # Create Qdrant collection if it doesn't exist
-            await self._ensure_qdrant_collection()
-            
             # Create Postgres tables if they don't exist
             await self._ensure_postgres_tables()
             
@@ -88,64 +77,6 @@ class IngestionPipeline:
         except Exception as e:
             logger.error(f"Pipeline initialization failed: {e}")
             raise
-    
-    async def _ensure_qdrant_collection(self):
-        """Ensure Qdrant collection exists with proper configuration."""
-        # Retry loop: Qdrant may not be ready when the worker container starts.
-        max_attempts = 10
-        delay = 1
-        for attempt in range(1, max_attempts + 1):
-            try:
-                collections = self.qdrant_client.get_collections()
-                collection_names = [col.name for col in collections.collections]
-
-                if self.collection_name not in collection_names:
-                    self.qdrant_client.create_collection(
-                        collection_name=self.collection_name,
-                        vectors_config=VectorParams(
-                            size=self.embedding_dim,
-                            distance=Distance.COSINE
-                        )
-                    )
-                    logger.info(f"Created Qdrant collection: {self.collection_name}")
-                else:
-                    logger.info(f"Qdrant collection already exists: {self.collection_name}")
-
-                if self.chat_collection_name not in collection_names:
-                    self.qdrant_client.create_collection(
-                        collection_name=self.chat_collection_name,
-                        vectors_config=VectorParams(
-                            size=self.embedding_dim,
-                            distance=Distance.COSINE
-                        )
-                    )
-                    logger.info(f"Created Qdrant chat collection: {self.chat_collection_name}")
-                else:
-                    logger.info(f"Qdrant chat collection already exists: {self.chat_collection_name}")
-
-                if self.profile_collection_name not in collection_names:
-                    self.qdrant_client.create_collection(
-                        collection_name=self.profile_collection_name,
-                        vectors_config=VectorParams(
-                            size=self.embedding_dim,
-                            distance=Distance.COSINE
-                        )
-                    )
-                    logger.info(f"Created Qdrant profile collection: {self.profile_collection_name}")
-                else:
-                    logger.info(f"Qdrant profile collection already exists: {self.profile_collection_name}")
-
-                # Success - exit retry loop
-                return
-
-            except Exception as e:
-                logger.warning(f"Attempt {attempt}/{max_attempts} - failed to contact Qdrant: {e}")
-                if attempt == max_attempts:
-                    logger.error(f"Failed to ensure Qdrant collection after {max_attempts} attempts: {e}")
-                    raise
-                # Exponential backoff with cap
-                await asyncio.sleep(delay)
-                delay = min(delay * 2, 10)
     
     async def _ensure_postgres_tables(self):
         """Ensure Postgres tables exist with proper schema."""
@@ -224,15 +155,7 @@ class IngestionPipeline:
             logger.error(f"Postgres connection check failed: {e}")
             return False
     
-    async def check_qdrant_connection(self) -> bool:
-        """Check if Qdrant connection is healthy."""
-        try:
-            self.qdrant_client.get_collections()
-            return True
-        except Exception as e:
-            logger.error(f"Qdrant connection check failed: {e}")
-            return False
-    
+
     def _compute_content_hash(self, text: str) -> str:
         """Compute SHA-256 hash of document content for deduplication."""
         return hashlib.sha256(text.encode('utf-8')).hexdigest()

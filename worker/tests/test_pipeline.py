@@ -16,7 +16,6 @@ class TestIngestionPipeline:
         """Set up test fixtures."""
         with patch.dict('os.environ', {
             'OPENAI_API_KEY': 'test-key',
-            'QDRANT_URL': 'http://localhost:6333',
             'POSTGRES_URL': 'postgresql://test:test@localhost/test'
         }):
             self.pipeline = IngestionPipeline()
@@ -151,7 +150,7 @@ class TestIngestionPipeline:
         
         with patch.object(self.pipeline, '_is_document_unchanged', return_value=False):
             with patch.object(self.pipeline, 'get_embedding', return_value=[[0.1] * 1536] * 3):
-                with patch.object(self.pipeline.qdrant_client, 'upsert'):
+                with patch('psycopg2.connect'):
                     with patch.object(self.pipeline, '_update_document_metadata'):
                         with patch.object(self.pipeline, '_log_ingestion_event'):
                             result = await self.pipeline.process_document(document)
@@ -175,7 +174,7 @@ class TestIngestionPipeline:
         
         with patch.object(self.pipeline, '_is_document_unchanged', return_value=True):
             with patch.object(self.pipeline, 'get_embedding', return_value=[[0.1] * 1536]):
-                with patch.object(self.pipeline.qdrant_client, 'upsert'):
+                with patch('psycopg2.connect'):
                     with patch.object(self.pipeline, '_update_document_metadata'):
                         with patch.object(self.pipeline, '_log_ingestion_event'):
                             result = await self.pipeline.process_document(document, force_reindex=True)

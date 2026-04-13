@@ -4,6 +4,9 @@
 
 echo "Starting AtlasAI System for SPOT Robot..."
 
+# Gracefully terminate any deeply nested orphaned python services running from previous runs
+echo "Cleaning up any running background API instances..."
+fuser -k 8000/tcp 8001/tcp 8089/tcp > /dev/null 2>&1 || true
 # Check if .env file exists
 if [ ! -f .env ]; then
     echo ".env file not found. Creating from template..."
@@ -18,6 +21,7 @@ if ! docker info > /dev/null 2>&1; then
     echo "Docker is not running. Please start Docker and try again."
     exit 1
 fi
+
 
 # Check if Docker Compose is available
 if ! command -v docker-compose &> /dev/null; then
@@ -76,13 +80,6 @@ else
     echo "PostgreSQL is not ready yet"
 fi
 
-# Check Qdrant
-if curl -f http://localhost:6333/health > /dev/null 2>&1; then
-    echo "Qdrant is ready"
-else
-    echo "Qdrant is not ready yet"
-fi
-
 echo ""
 echo "AtlasAI System for SPOT Robot is starting up!"
 echo ""
@@ -90,7 +87,6 @@ echo "Service URLs:"
 echo "   • Worker API: http://localhost:8000"
 echo "   • API Docs: http://localhost:8000/docs"
 echo "   • n8n Interface: http://localhost:5678"
-echo "   • Qdrant Dashboard: http://localhost:6333/dashboard"
 echo "   • Perception (capture frame): http://127.0.0.1:8089"
 echo "   • TTS (speaker API): http://localhost:8001"
 echo ""

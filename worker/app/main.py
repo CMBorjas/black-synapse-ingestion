@@ -107,12 +107,9 @@ async def health_check():
     try:
         # Check database connections
         postgres_healthy = await pipeline.check_postgres_connection()
-        qdrant_healthy = await pipeline.check_qdrant_connection()
-        
         return {
-            "status": "healthy" if postgres_healthy and qdrant_healthy else "unhealthy",
-            "postgres": "connected" if postgres_healthy else "disconnected",
-            "qdrant": "connected" if qdrant_healthy else "disconnected"
+            "status": "healthy" if postgres_healthy else "unhealthy",
+            "postgres": "connected" if postgres_healthy else "disconnected"
         }
     except Exception as e:
         logger.error(f"Health check failed: {e}")
@@ -131,7 +128,7 @@ async def ingest_document(
     2. Deduplicates via content hash
     3. Chunks text
     4. Generates embeddings
-    5. Upserts to Qdrant
+    5. Upserts to Postgres
     6. Logs to Postgres
     """
     try:

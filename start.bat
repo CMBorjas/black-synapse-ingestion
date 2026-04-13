@@ -74,13 +74,6 @@ if errorlevel 1 (
     echo PostgreSQL is ready
 )
 
-REM Check Qdrant
-curl -f http://localhost:6333/health >nul 2>&1
-if errorlevel 1 (
-    echo Qdrant is not ready yet
-) else (
-    echo Qdrant is ready
-)
 
 echo.
 echo AtlasAI System for SPOT Robot is starting up!
@@ -89,7 +82,7 @@ echo Service URLs:
 echo    • Worker API: http://localhost:8000
 echo    • API Docs: http://localhost:8000/docs
 echo    • n8n Interface: http://localhost:5678
-echo    • Qdrant Dashboard: http://localhost:6333/dashboard
+
 echo    • Perception (capture frame): http://127.0.0.1:8089
 echo    • TTS (speaker API): http://localhost:8001
 echo.

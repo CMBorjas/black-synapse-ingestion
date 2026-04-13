@@ -32,8 +32,8 @@ services:
       - "./ASR:/data/asr"
     depends_on:
       - redis
-      - qdrant
       - ollama
+      - postgres
 
   n8n-worker:
     image: n8nio/n8n:latest
@@ -55,23 +55,6 @@ services:
       - "./ASR:/data/asr"
     depends_on:
       - redis
-
-  qdrant:
-    image: qdrant/qdrant:latest
-#    ports:
-#      - "6333:6333"
-#      - "6334:6334" # gRPC
-    volumes:
-      - qdrant_data:/qdrant/storage
-    restart: unless-stopped
-    healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:6333/health" ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-    ulimits:
-      nofile: 262144
 
   ollama:
     image: ollama/ollama:latest
@@ -128,15 +111,21 @@ services:
     restart: unless-stopped
 
   postgres:
-    image: postgres:15
+    image: pgvector/pgvector:pg16
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_DB=atlasai
-#    ports:
-#      - "5433:5432"
+    ports:
+      - "5432:5432"
     volumes:
+      - postgres_data:/var/lib/postgresql/data
       - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d atlasai"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     restart: unless-stopped
 
   worker:
@@ -147,11 +136,9 @@ services:
       - "8009:8000"
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - QDRANT_URL=http://qdrant:6333
       - POSTGRES_URL=postgresql://postgres:postgres@postgres:5432/atlasai
       - LOG_LEVEL=INFO
     depends_on:
-      - qdrant
       - postgres
     restart: unless-stopped
     volumes:
@@ -161,8 +148,6 @@ services:
 
 volumes:
   n8n_data:
-  qdrant_data:
   ollama_data:
   asr_audio:
-
-
+  postgres_data:

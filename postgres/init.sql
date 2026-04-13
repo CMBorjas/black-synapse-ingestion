@@ -7,6 +7,9 @@
 -- Connect to the database
 \c atlasai;
 
+-- Initialize vector extension
+CREATE EXTENSION IF NOT EXISTS vector;
+
 -- Create documents table for tracking ingested documents
 CREATE TABLE IF NOT EXISTS documents (
     doc_id VARCHAR(255) PRIMARY KEY,
@@ -23,6 +26,17 @@ CREATE TABLE IF NOT EXISTS documents (
     metadata JSONB DEFAULT '{}'::jsonb
 );
 
+-- Create document_chunks table for vector search
+CREATE TABLE IF NOT EXISTS document_chunks (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    doc_id VARCHAR(255) NOT NULL REFERENCES documents(doc_id) ON DELETE CASCADE,
+    chunk_index INTEGER NOT NULL,
+    text TEXT NOT NULL,
+    embedding vector(1536),
+    metadata JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- Create ingestion_log table for tracking processing events
 CREATE TABLE IF NOT EXISTS ingestion_log (
     id SERIAL PRIMARY KEY,
@@ -31,6 +45,16 @@ CREATE TABLE IF NOT EXISTS ingestion_log (
     message TEXT,
     timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     metadata JSONB DEFAULT '{}'::jsonb
+);
+
+-- Create chat_memory_chunks table for session context vector search
+CREATE TABLE IF NOT EXISTS chat_memory_chunks (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id VARCHAR(255) NOT NULL,
+    text TEXT NOT NULL,
+    embedding vector(1536),
+    metadata JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- Create source_sync table for tracking sync operations
@@ -54,6 +78,12 @@ CREATE INDEX IF NOT EXISTS idx_documents_processed_at ON documents(processed_at)
 CREATE INDEX IF NOT EXISTS idx_documents_is_deleted ON documents(is_deleted);
 CREATE INDEX IF NOT EXISTS idx_documents_created_at ON documents(created_at);
 CREATE INDEX IF NOT EXISTS idx_documents_updated_at ON documents(updated_at);
+
+CREATE INDEX IF NOT EXISTS idx_document_chunks_doc_id ON document_chunks(doc_id);
+CREATE INDEX IF NOT EXISTS idx_document_chunks_embedding ON document_chunks USING hnsw (embedding vector_cosine_ops);
+
+CREATE INDEX IF NOT EXISTS idx_chat_memory_chunks_session_id ON chat_memory_chunks(session_id);
+CREATE INDEX IF NOT EXISTS idx_chat_memory_chunks_embedding ON chat_memory_chunks USING hnsw (embedding vector_cosine_ops);
 
 CREATE INDEX IF NOT EXISTS idx_ingestion_log_doc_id ON ingestion_log(doc_id);
 CREATE INDEX IF NOT EXISTS idx_ingestion_log_timestamp ON ingestion_log(timestamp);
