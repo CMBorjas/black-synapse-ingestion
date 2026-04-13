@@ -21,9 +21,9 @@ log = logging.getLogger("perception")
 app = FastAPI(title="Perception Vision Service")
 
 # ── Tunables ──────────────────────────────────────────────────────────
-CAM_INDEX = int(os.getenv("CAM_INDEX", "0"))
-WIDTH = int(os.getenv("CAM_WIDTH", "1280"))
-HEIGHT = int(os.getenv("CAM_HEIGHT", "720"))
+CAM_INDEX = int(os.getenv("CAM_INDEX", "1"))
+WIDTH = int(os.getenv("CAM_WIDTH", "1920"))
+HEIGHT = int(os.getenv("CAM_HEIGHT", "1080"))
 JPEG_QUALITY = int(os.getenv("JPEG_QUALITY", "90"))
 CAPTURE_FPS = int(os.getenv("CAPTURE_FPS", "15"))
 
@@ -36,10 +36,10 @@ N8N_WEBHOOK_URL = os.getenv(
 )
 PUSH_ENABLED = os.getenv("PUSH_ENABLED", "true").lower() == "true"
 
-# QR → persisted `location` field (sticky until a new QR replaces it)
+# QR code → persisted `location` field (sticky until a new QR replaces it)
 QR_SCAN_ENABLED = os.getenv("QR_SCAN_ENABLED", "true").lower() == "true"
 QR_SCAN_INTERVAL = float(os.getenv("QR_SCAN_INTERVAL", "0.5"))
-# Draw QR outline + label on MJPEG /stream frames (decode runs per streamed frame when enabled)
+# Draw QR outline + label on MJPEG /stream frames
 QR_STREAM_OVERLAY = os.getenv("QR_STREAM_OVERLAY", "true").lower() == "true"
 
 # DeepFace stream mode: when true, stream runs face analysis + identification (heavy).
@@ -794,101 +794,41 @@ def _frame_diff(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.mean(cv2.absdiff(ga, gb)))
 
 
-def _parse_location_from_qr(raw: str) -> Optional[str]:
-    """Map QR payload to a single location string (plain text or small JSON)."""
-    if not raw or not isinstance(raw, str):
-        return None
-    text = raw.strip()
-    if not text:
-        return None
-    if text[0] in "{[":
-        try:
-            obj = json.loads(text)
-            if isinstance(obj, dict):
-                for key in ("location", "name", "place", "title", "label"):
-                    v = obj.get(key)
-                    if v is not None and str(v).strip():
-                        return str(v).strip()
-                return None
-            if isinstance(obj, str) and obj.strip():
-                return obj.strip()
-        except json.JSONDecodeError:
-            pass
-    return text
+# ── QR code detector (created once, reused across threads) ───────────
+_qr_detector = cv2.QRCodeDetector()
 
 
 def _scan_qr_all(bgr: np.ndarray) -> List[Tuple[str, Optional[np.ndarray]]]:
     """
-    Decode all QR codes in frame. Each item is (raw_payload, corners) where corners
-    is (4, 2) float32 or None (for drawing on stream).
+    Detect all QR codes in frame.
+    Returns list of (decoded_text, corners_4x2) tuples (only non-empty decoded values).
     """
-    det = cv2.QRCodeDetector()
-    found: List[Tuple[str, Optional[np.ndarray]]] = []
-    try:
-        multi = getattr(det, "detectAndDecodeMulti", None)
-        if multi is not None:
-            ok, decoded, points, _ = multi(bgr)
-            if ok and decoded is not None:
-                if isinstance(decoded, str):
-                    dec_list: List[str] = [decoded] if decoded else []
-                else:
-                    dec_list = [str(s) for s in decoded if s]
-                if dec_list and points is not None and getattr(points, "size", 0) > 0:
-                    pts_arr = np.asarray(points, dtype=np.float32)
-                    if pts_arr.ndim == 3:
-                        for i, s in enumerate(dec_list):
-                            if not s:
-                                continue
-                            p = pts_arr[i] if i < pts_arr.shape[0] else None
-                            found.append((s, p))
-                    else:
-                        for s in dec_list:
-                            if s:
-                                found.append((s, None))
-                elif dec_list:
-                    for s in dec_list:
-                        if s:
-                            found.append((s, None))
-        if not found:
-            ok, decoded, points, _ = det.detectAndDecode(bgr)
-            if not ok or not decoded:
-                return []
-            pts = None
-            if points is not None and getattr(points, "size", 0) > 0:
-                pts = np.asarray(points, dtype=np.float32).reshape(-1, 2)
-            found.append((decoded, pts))
-    except Exception as exc:
-        log.debug("QR decode failed: %s", exc)
-    return found
-
-
-def _scan_qr_frame(bgr: np.ndarray) -> List[str]:
-    """Return raw decoded strings for all QR codes in frame (may be empty)."""
-    return [raw for raw, _ in _scan_qr_all(bgr)]
+    results: List[Tuple[str, Optional[np.ndarray]]] = []
+    ok, decoded_info, points, _ = _qr_detector.detectAndDecodeMulti(bgr)
+    if ok and points is not None:
+        for i, text in enumerate(decoded_info):
+            if text:
+                pts = points[i].reshape(4, 2).astype(np.float32) if i < len(points) else None
+                results.append((text, pts))
+    return results
 
 
 def _persist_location_from_qr_hits(hits: List[Tuple[str, Optional[np.ndarray]]]) -> None:
-    """Write state.location from the first QR hit that parses as a location (sticky until replaced)."""
-    location_text: Optional[str] = None
-    for raw, _ in hits:
-        loc = _parse_location_from_qr(raw)
-        if loc:
-            location_text = loc
-            break
-    if location_text is None:
-        return
-    state = _read_state_file()
-    if state.get("location") != location_text:
-        state["location"] = location_text
-        _write_state_file(state)
-        log.info("Location from QR: %s", location_text)
+    """Write state.location from the first decoded QR value."""
+    for text, _ in hits:
+        if text:
+            state = _read_state_file()
+            if state.get("location") != text:
+                state["location"] = text
+                _write_state_file(state)
+                log.info("Location from QR code: %s", text)
+            return
 
 
 def _draw_qr_hits_on_bgr(vis: np.ndarray, hits: List[Tuple[str, Optional[np.ndarray]]]) -> None:
-    """Draw detection outline and label on BGR image (mutates vis)."""
-    for raw, pts in hits:
-        loc = _parse_location_from_qr(raw)
-        label = loc or (raw[:48] + "…" if len(raw) > 48 else raw)
+    """Draw QR code outlines and decoded labels on BGR image (mutates vis)."""
+    for text, pts in hits:
+        label = text[:40]
         if pts is not None and pts.size >= 8:
             pi = pts.astype(np.int32).reshape(-1, 1, 2)
             cv2.polylines(vis, [pi], True, (64, 255, 64), 2)
@@ -901,7 +841,7 @@ def _draw_qr_hits_on_bgr(vis: np.ndarray, hits: List[Tuple[str, Optional[np.ndar
 
 
 def _qr_scan_loop():
-    """Background: decode location from QR in the live frame; sticky until a new code appears."""
+    """Background: detect QR codes in the live frame and update state.location."""
     interval = max(QR_SCAN_INTERVAL, 0.2)
     while not _shutdown_event.is_set():
         try:

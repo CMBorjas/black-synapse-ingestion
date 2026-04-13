@@ -1,8 +1,7 @@
 """
 Speaker API (Barge-in / Override capable)
 ----------------------------------------
-FastAPI server that accepts WAV/MP3 and plays them with pygame.
-Adds:
+FastAPI server that accepts WAV/MP3 and plays them via sounddevice + soundfile.
 - POST /stop: immediately stop playback
 - POST /interrupt: stop playback + increment epoch, returns epoch
 - POST /play?epoch=N: only plays if epoch matches current epoch (prevents stale audio)
@@ -11,14 +10,17 @@ Adds:
 
 from __future__ import annotations
 
+import logging
 import os
 import platform
 import threading
+import time
 import uuid
 from pathlib import Path
 from typing import Optional
 
-import pygame
+import sounddevice as sd
+import soundfile as sf
 from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import JSONResponse
 
@@ -30,34 +32,15 @@ SUPPORTED_MIME_TYPES = {
     "audio/mp3": ".mp3",
 }
 RECEIVED_DIR = Path(os.environ.get("RECEIVED_AUDIO_DIR", "received_audio"))
+AUDIO_DEVICE: Optional[str] = os.environ.get("AUDIO_DEVICE") or None
 
-app = FastAPI(title="Kokoro Speaker API", version="2.0.0")
-
-_pygame_initialized = False
+app = FastAPI(title="Kokoro Speaker API", version="3.0.0")
 
 # ---- Barge-in state ----
 _state_lock = threading.Lock()
-_current_epoch = 0          # increments on every interrupt
+_current_epoch = 0
 _current_play_id: Optional[str] = None
 _stop_event = threading.Event()
-
-
-def _init_pygame() -> None:
-    global _pygame_initialized
-    if not _pygame_initialized:
-        preferred_device = os.getenv("AUDIO_DEVICE", "Built-in Audio Digital Stereo (HDMI)")
-        try:
-            pygame.mixer.init(devicename=preferred_device)
-        except pygame.error:
-            # Preferred device not available — fall back to system default
-            try:
-                pygame.mixer.init()
-            except pygame.error as e:
-                raise RuntimeError(
-                    f"Failed to initialize pygame mixer: {e}. "
-                    "Make sure audio drivers are available."
-                ) from e
-        _pygame_initialized = True
 
 
 def _ensure_tmp_dir() -> None:
@@ -75,9 +58,7 @@ async def _store_upload(upload: UploadFile) -> Path:
             detail=f"Unsupported file type '{suffix or upload.content_type}'. Only .wav or .mp3 are accepted.",
         )
 
-    tmp_name = f"{uuid.uuid4().hex}{suffix}"
-    tmp_path = RECEIVED_DIR / tmp_name
-
+    tmp_path = RECEIVED_DIR / f"{uuid.uuid4().hex}{suffix}"
     with tmp_path.open("wb") as buffer:
         while True:
             chunk = await upload.read(1024 * 1024)
@@ -103,9 +84,7 @@ async def _store_stream(request: Request) -> Path:
                    "Use multipart form field 'file' or set Content-Type to audio/wav or audio/mpeg.",
         )
 
-    tmp_name = f"{uuid.uuid4().hex}{suffix}"
-    tmp_path = RECEIVED_DIR / tmp_name
-
+    tmp_path = RECEIVED_DIR / f"{uuid.uuid4().hex}{suffix}"
     bytes_written = 0
     with tmp_path.open("wb") as buffer:
         async for chunk in request.stream():
@@ -123,60 +102,51 @@ async def _store_stream(request: Request) -> Path:
 
 def _stop_now() -> None:
     """Immediately stop current playback."""
-    if not _pygame_initialized:
-        return
     _stop_event.set()
     try:
-        pygame.mixer.music.stop()
+        sd.stop()
     except Exception:
         pass
 
 
 def _background_play(file_path: Path, play_id: str) -> None:
     """
-    Play audio in background.
-    Stops early if:
-      - /stop called (_stop_event set)
-      - a new play starts (play_id changed)
+    Play audio in background via sounddevice OutputStream.
+    Stops early if /stop called or a new play starts.
     """
     global _current_play_id
 
     try:
-        if not _pygame_initialized:
-            _init_pygame()
-
-        # Clear stop flag for this run
+        data, samplerate = sf.read(str(file_path), dtype="float32", always_2d=True)
         _stop_event.clear()
 
-        # Start playback
-        pygame.mixer.music.load(str(file_path))
-        pygame.mixer.music.play()
+        chunk_frames = int(samplerate * 0.05)  # 50 ms chunks
+        pos = 0
 
-        # Poll until done or cancelled
-        while True:
-            with _state_lock:
-                still_current = (_current_play_id == play_id)
-            if not still_current:
-                _stop_now()
-                return
+        with sd.OutputStream(
+            samplerate=samplerate,
+            channels=data.shape[1],
+            device=AUDIO_DEVICE,
+            dtype="float32",
+        ) as stream:
+            while pos < len(data):
+                with _state_lock:
+                    still_current = (_current_play_id == play_id)
+                if not still_current or _stop_event.is_set():
+                    return
 
-            if _stop_event.is_set():
-                _stop_now()
-                return
+                chunk = data[pos : pos + chunk_frames]
+                stream.write(chunk)
+                pos += chunk_frames
 
-            if not pygame.mixer.music.get_busy():
-                return
-
-            pygame.time.wait(50)
-
-    except Exception:
-        # Don't crash server thread; just stop playback
+    except Exception as e:
+        import traceback
+        logging.error(f"[background_play] ERROR: {e}\n{traceback.format_exc()}")
         try:
-            _stop_now()
+            sd.stop()
         except Exception:
             pass
     finally:
-        # cleanup file
         try:
             file_path.unlink(missing_ok=True)
         except Exception:
@@ -186,7 +156,8 @@ def _background_play(file_path: Path, play_id: str) -> None:
 @app.on_event("startup")
 def startup_event() -> None:
     _ensure_tmp_dir()
-    _init_pygame()
+    logging.info(f"Audio device: {AUDIO_DEVICE!r}")
+    logging.info(f"Available devices: {sd.query_devices()}")
 
 
 @app.get("/healthz")
@@ -195,38 +166,28 @@ async def healthz():
         epoch = _current_epoch
         play_id = _current_play_id
     return {
-        "status": "ok" if _pygame_initialized else "not_ready",
-        "player": "pygame",
+        "status": "ok",
+        "player": "sounddevice",
         "platform": platform.system(),
-        "initialized": _pygame_initialized,
+        "audio_device": AUDIO_DEVICE,
         "epoch": epoch,
-        "playing": bool(play_id) and pygame.mixer.music.get_busy() if _pygame_initialized else False,
+        "playing": play_id is not None,
     }
 
 
 @app.post("/stop")
 async def stop_audio():
     """Stop current playback immediately."""
-    if not _pygame_initialized:
-        raise HTTPException(status_code=503, detail="Audio player not ready")
     _stop_now()
+    global _current_play_id
     with _state_lock:
-        # invalidate current play id so background loop exits
-        global _current_play_id
         _current_play_id = None
     return JSONResponse({"status": "stopped"})
 
 
 @app.post("/interrupt")
 async def interrupt():
-    """
-    Barge-in endpoint:
-    - stops playback
-    - increments epoch (invalidates stale future plays)
-    """
-    if not _pygame_initialized:
-        raise HTTPException(status_code=503, detail="Audio player not ready")
-
+    """Barge-in: stops playback and increments epoch."""
     _stop_now()
 
     global _current_epoch, _current_play_id
@@ -249,27 +210,20 @@ async def play_audio(
     Plays audio only if epoch matches current epoch.
     Non-blocking: returns immediately while audio plays in background.
     """
-    if not _pygame_initialized:
-        raise HTTPException(status_code=503, detail="Audio player not ready")
-
-    # Store audio to disk
     if file is not None:
         stored_path = await _store_upload(file)
     else:
         stored_path = await _store_stream(request)
 
-    # Epoch gate: refuse stale audio
     with _state_lock:
         if epoch != _current_epoch:
             stored_path.unlink(missing_ok=True)
             raise HTTPException(status_code=409, detail=f"Stale audio (epoch={epoch}, current={_current_epoch}).")
 
-        # New play id becomes the only valid one
         global _current_play_id
         play_id = uuid.uuid4().hex
         _current_play_id = play_id
 
-    # Start playback in background thread
     background_tasks.add_task(_background_play, stored_path, play_id)
     return JSONResponse({"status": "playing", "epoch": epoch, "play_id": play_id})
 

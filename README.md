@@ -149,6 +149,18 @@ python -m action_servos [center|arm|head|ear]
 
 Camera utilities (`probe_cameras.py`, `capture_frame.py`). DeepFace runs in Docker for face recognition at port 5000.
 
+**Face enrollment from images**
+
+To register a person without needing them present in front of the camera, use `enroll_from_folder.py`. Point it at a folder of photos and give the person a name:
+
+```bash
+python perception/enroll_from_folder.py --name "Alice" --folder /path/to/alice_photos/
+```
+
+Each image is processed with DeepFace (Facenet512). Faces are extracted, embedded, and saved to `face_embeddings.json`. Any existing anonymous `user_N` entries that match the new embeddings are automatically merged into the named person.
+
+See [`perception/faces/README.md`](perception/faces/README.md) for full usage and options.
+
 ### n8n Workflows (`n8n/workflows/`)
 
 Low-code ETL: polls/listens to a source → normalizes to unified schema → `POST /ingest` on the worker.
