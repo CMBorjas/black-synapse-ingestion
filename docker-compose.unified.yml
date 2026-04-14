@@ -197,6 +197,12 @@ services:
     extra_hosts:
       # Allows reaching services on the host machine if needed
       - "host.docker.internal:host-gateway"
+    networks:
+      default:
+        aliases:
+          # nginx.conf in lynx-client proxies to http://server:4000 — this alias
+          # lets it resolve without needing to rebuild the client image.
+          - server
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:4000/health', r => process.exit(r.statusCode === 200 ? 0 : 1))"]
       interval: 30s
