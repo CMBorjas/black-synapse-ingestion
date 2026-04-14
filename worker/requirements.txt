@@ -13,3 +13,5 @@ beautifulsoup4==4.12.2
 requests==2.31.0
 httpx==0.25.2
 firecrawl-py==0.0.20
+markitdown==0.0.1a4
+xlrd>=2.0.1

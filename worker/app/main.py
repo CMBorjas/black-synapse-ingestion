@@ -7,8 +7,9 @@ Handles ingestion, deduplication, chunking, and vector storage to power the robo
 
 import os
 import logging
+import tempfile
 from typing import Dict, Any, List, Optional
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
@@ -16,6 +17,7 @@ from dotenv import load_dotenv
 from .pipeline import IngestionPipeline
 from .utils import setup_logging
 from .scraper import scrape_url
+from .parsers import DocumentParser
 import uuid
 from datetime import datetime
 
@@ -44,6 +46,7 @@ app.add_middleware(
 
 # Initialize ingestion pipeline
 pipeline = IngestionPipeline()
+doc_parser = DocumentParser()
 
 # Pydantic models for API requests/responses
 class DocumentPayload(BaseModel):
@@ -157,6 +160,92 @@ async def ingest_document(
     except Exception as e:
         logger.error(f"Unexpected error processing document {document.doc_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Processing failed: {str(e)}")
+
+@app.post("/ingest/file", response_model=IngestionResponse)
+async def ingest_file(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    source: str = Form("file_upload"),
+    title: Optional[str] = Form(None),
+    author: str = Form("user"),
+    doc_id: Optional[str] = Form(None)
+):
+    """
+    Ingest a document from an uploaded file (.pdf, .docx, .xlsx, .pptx, etc.).
+    """
+    try:
+        if not doc_parser.is_supported(file.filename):
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Unsupported file format. Supported: {', '.join(doc_parser.supported_extensions)}"
+            )
+
+        # Generate a doc_id if not provided
+        if not doc_id:
+            doc_id = f"file_{uuid.uuid4().hex[:8]}_{file.filename.lower().replace(' ', '_')}"
+            
+        # Use filename as title if none provided
+        if not title:
+            title = file.filename
+
+        # Save uploaded file to a temporary location for processing
+        temp_dir = tempfile.gettempdir()
+        temp_path = os.path.join(temp_dir, f"{uuid.uuid4()}_{file.filename}")
+        
+        try:
+            with open(temp_path, "wb") as f:
+                content = await file.read()
+                f.write(content)
+            
+            # Parse document to Markdown
+            logger.info(f"Parsing uploaded file: {file.filename}")
+            markdown_text = doc_parser.parse_file(temp_path)
+            
+            if not markdown_text:
+                raise HTTPException(status_code=500, detail="Failed to extract text from file")
+                
+            # Create document payload
+            now = datetime.utcnow().isoformat()
+            document = DocumentPayload(
+                doc_id=doc_id,
+                source=source,
+                title=title,
+                uri=f"file://{file.filename}",
+                text=markdown_text,
+                author=author,
+                created_at=now,
+                updated_at=now
+            )
+            
+            # Process through pipeline
+            logger.info(f"Processing extracted text for: {doc_id}")
+            result = await pipeline.process_document(document)
+            
+            if result["success"]:
+                return IngestionResponse(
+                    success=True,
+                    message="File processed and indexed successfully",
+                    doc_id=doc_id,
+                    chunks_processed=result["chunks_processed"]
+                )
+            else:
+                return IngestionResponse(
+                    success=False,
+                    message="File indexing failed",
+                    doc_id=doc_id,
+                    error=result["error"]
+                )
+                
+        finally:
+            # Clean up temp file
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+                
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error ingesting file {file.filename}: {e}")
+        raise HTTPException(status_code=500, detail=f"File ingestion failed: {str(e)}")
 
 @app.post("/reindex", response_model=IngestionResponse)
 async def reindex_document(
