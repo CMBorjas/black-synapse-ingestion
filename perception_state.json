@@ -1,0 +1,14 @@
+{
+  "faces": [
+    {
+      "name": "user_1",
+      "emotion": "neutral",
+      "age": 32,
+      "gender": "M",
+      "confidence": 0.8011650811173678
+    }
+  ],
+  "scene_caption": "The scene shows an office space with glass partitions and a wooden chair in the foreground. Visible objects include office furniture such as desks, chairs, filing cabinets, and framed artwork or photographs on the walls. Behind the glass door, there are more office desks and chairs. There is a faint reflection of a person holding a phone or a small electronic device, possibly taking the photo or inspecting something.",
+  "location": null,
+  "updated_at": 1775085588.3904276
+}
