@@ -96,9 +96,9 @@ class PCA9685:
         self._write8(MODE1, newmode)
         time.sleep(0.005)
         self._write8(PRESCALE, prescale)
-        self._write8(MODE1, oldmode)
+        self._write8(MODE1, oldmode | MODE1_AI)
         time.sleep(0.005)
-        self._write8(MODE1, oldmode | MODE1_RESTART)
+        self._write8(MODE1, oldmode | MODE1_AI | MODE1_RESTART)
         self._frequency_hz = OSC_HZ / (4096.0 * float(prescale + 1))
         logger.debug("PCA9685 prescale=%s effective_hz=%.3f", prescale, self._frequency_hz)
 
@@ -122,6 +122,41 @@ class PCA9685:
             (off >> 8) & 0xFF,
         ]
         self._bus.write_i2c_block_data(self._address, base, data)
+
+    def read_channel_raw(self, channel: int) -> tuple[int, int]:
+        """Read back ON and OFF counts (12-bit) for a channel."""
+        if not 0 <= channel <= 15:
+            raise ValueError(f"channel must be 0-15, got {channel}")
+        assert self._bus is not None
+        base = LED0_ON_L + 4 * channel
+        data = self._bus.read_i2c_block_data(self._address, base, 4)
+        on = data[0] | ((data[1] & 0x0F) << 8)
+        off = data[2] | ((data[3] & 0x0F) << 8)
+        return on, off
+
+    def reset_channel(self, channel: int, pulse_us: float) -> None:
+        """Wake the chip if sleeping, clear any FULL_OFF state, and re-send pulse_us."""
+        if not 0 <= channel <= 15:
+            raise ValueError(f"channel must be 0-15, got {channel}")
+        assert self._bus is not None
+        mode = self._read8(MODE1)
+        if mode & MODE1_SLEEP:
+            self._write8(MODE1, mode & ~MODE1_SLEEP)
+            time.sleep(0.005)
+            self._write8(MODE1, (mode & ~MODE1_SLEEP) | MODE1_RESTART)
+        base = LED0_ON_L + 4 * channel
+        self._bus.write_i2c_block_data(self._address, base, [0x00, 0x00, 0x00, 0x00])
+        self.set_channel_pulse_us(channel, pulse_us)
+        logger.debug("reset_channel ch=%d pulse_us=%.1f", channel, pulse_us)
+
+    def set_channel_full_off(self, channel: int) -> None:
+        """Drive channel output permanently LOW (servo torque off, no PWM signal)."""
+        if not 0 <= channel <= 15:
+            raise ValueError(f"channel must be 0-15, got {channel}")
+        assert self._bus is not None
+        base = LED0_ON_L + 4 * channel
+        # Setting bit 4 of OFF_H (0x10) activates the FULL_OFF override
+        self._bus.write_i2c_block_data(self._address, base, [0x00, 0x00, 0x00, 0x10])
 
     def sleep_all(self) -> None:
         """Sleep the chip (stops PWM outputs)."""

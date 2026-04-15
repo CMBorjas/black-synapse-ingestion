@@ -12,6 +12,7 @@ from action_servos.config import (
     DEFAULT_PWM_FREQUENCY_HZ,
 )
 from action_servos.groups import ServoOrchestrator, presets_head_pose, us_to_normalized
+from worker.app.arm_actions import execute_action
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -50,6 +51,18 @@ def main(argv: list[str] | None = None) -> int:
     p_ear = sub.add_parser("ear", help="Set ear servo (normalized -1..1 or pulse us)")
     p_ear.add_argument("-n", type=float, default=None, dest="norm", help="normalized -1..1")
     p_ear.add_argument("--us", type=float, default=None, dest="us", help="pulse microseconds")
+
+    p_seq = sub.add_parser("sequence", help="Run a named arm sequence (wave, point, rest, extend, retract)")
+    p_seq.add_argument("name", type=str, help="sequence name: wave, point, rest, extend, retract")
+    p_seq.add_argument("--amount", type=int, default=None, help="percent for extend/retract (0-100)")
+
+    for _cmd, _help in (("release", "Cut PWM to joints (servos go limp)"),
+                        ("resume", "Re-engage torque on joints (restores last position)"),
+                        ("reset", "Wake chip + clear FULL_OFF state, re-send last position")):
+        p = sub.add_parser(_cmd, help=_help)
+        p.add_argument("--arm", action="store_true", default=False)
+        p.add_argument("--head", action="store_true", default=False)
+        p.add_argument("--ear", action="store_true", default=False)
 
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.WARNING)
@@ -128,6 +141,37 @@ def main(argv: list[str] | None = None) -> int:
                 ear.set_normalized(float(args.norm))
             else:
                 parser.error("ear: specify -n or --us")
+        elif args.cmd == "sequence":
+            try:
+                result = execute_action(orch, args.name, args.amount)
+                print(result)
+            except ValueError as e:
+                print(f"error: {e}", file=sys.stderr)
+                return 1
+        elif args.cmd in ("release", "resume", "reset"):
+            # If no joint flags given, apply to all.
+            all_joints = not (args.arm or args.head or args.ear)
+            if args.cmd == "release":
+                if args.arm or all_joints:
+                    orch.arm.release()
+                if args.head or all_joints:
+                    orch.head.release()
+                if args.ear or all_joints:
+                    orch.ear.release()
+            elif args.cmd == "resume":
+                if args.arm or all_joints:
+                    orch.arm.resume()
+                if args.head or all_joints:
+                    orch.head.resume()
+                if args.ear or all_joints:
+                    orch.ear.resume()
+            else:
+                if args.arm or all_joints:
+                    orch.arm.reset()
+                if args.head or all_joints:
+                    orch.head.reset()
+                if args.ear or all_joints:
+                    orch.ear.reset()
         return 0
     finally:
         orch.close()

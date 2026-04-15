@@ -7,7 +7,7 @@ from typing import Optional
 
 
 # Typical Jetson header I2C bus; confirm with `i2cdetect -l` on device.
-DEFAULT_I2C_BUS = 1
+DEFAULT_I2C_BUS = 7
 DEFAULT_PCA9685_ADDRESS = 0x40
 DEFAULT_PWM_FREQUENCY_HZ = 50.0
 
@@ -49,6 +49,6 @@ class ServoLayout:
             arm_joint0=JointSpec(6),
             arm_joint1=JointSpec(5),
             head_pan=None,
-            head_tilt=JointSpec(0, min_us=1000, max_us=2000),
+            head_tilt=JointSpec(8, min_us=1000, max_us=2000),
             ear=JointSpec(3),
         )

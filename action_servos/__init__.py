@@ -20,6 +20,7 @@ from action_servos.groups import (
     us_to_normalized,
 )
 from action_servos.hardware import PCA9685
+from action_servos.sequences import Keyframe, Pose, Sequence
 
 __all__ = [
     "ArmController",
@@ -38,4 +39,7 @@ __all__ = [
     "normalized_to_us",
     "presets_head_pose",
     "us_to_normalized",
+    "Keyframe",
+    "Pose",
+    "Sequence",
 ]
