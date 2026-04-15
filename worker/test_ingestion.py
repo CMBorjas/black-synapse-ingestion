@@ -309,12 +309,12 @@ startxref
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 def main():
+    global WORKER_URL
     parser = argparse.ArgumentParser(description="Verify all ingestion endpoints")
     parser.add_argument("--worker",   default=WORKER_URL, help="Worker base URL")
     parser.add_argument("--skip-pdf", action="store_true", help="Skip PDF ingestion test")
     args = parser.parse_args()
 
-    global WORKER_URL
     WORKER_URL = args.worker.rstrip("/")
 
     print(f"\n{BOLD}AtlasAI Ingestion Worker — Verification Suite{RESET}")
