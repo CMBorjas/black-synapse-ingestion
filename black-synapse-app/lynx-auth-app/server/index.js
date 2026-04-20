@@ -9,6 +9,7 @@ const authRoutes = require('./routes/auth');
 const oauthRoutes = require('./routes/oauth');
 const credentialsRoutes = require('./routes/credentials');
 const emailRoutes = require('./routes/email');
+const uploadsRoutes = require('./routes/uploads');
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -35,6 +36,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/oauth', oauthRoutes);
 app.use('/api/credentials', credentialsRoutes);
 app.use('/api/email', emailRoutes);
+app.use('/api/uploads', uploadsRoutes);
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', service: 'lynx-auth-server' });

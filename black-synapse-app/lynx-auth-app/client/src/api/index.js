@@ -32,6 +32,22 @@ export const getConnections = () =>
 export const disconnectService = (service) =>
   api.delete(`/api/credentials/${service}`).then((r) => r.data);
 
+// ── File uploads ──────────────────────────────────────────────────────────────
+
+export const getUploads = () =>
+  api.get('/api/uploads').then((r) => r.data);
+
+export const uploadFiles = (fileList) => {
+  const form = new FormData();
+  for (const file of fileList) {
+    form.append('files', file);
+  }
+  return api.post('/api/uploads', form).then((r) => r.data);
+};
+
+export const deleteUpload = (id) =>
+  api.delete(`/api/uploads/${id}`).then((r) => r.data);
+
 // ── OAuth (redirect-based, not axios) ────────────────────────────────────────
 // These just build the URL — the browser does the redirect itself.
 

@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { getConnections } from '../api';
 import Header from '../components/Header';
 import ServiceCard from '../components/ServiceCard';
+import FileUploads from '../components/FileUploads';
 
 const SERVICES = ['google', 'microsoft', 'discord', 'notion'];
 
@@ -107,6 +108,8 @@ export default function Dashboard({ user, onLogout }) {
         )}
 
         {/* n8n status note */}
+        <FileUploads onToast={(type, message) => showToast(type, message)} />
+
         <p style={styles.footer}>
           Credentials are provisioned directly into your n8n instance and encrypted at rest.
           Disconnecting removes them from n8n immediately.

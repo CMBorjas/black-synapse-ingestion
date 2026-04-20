@@ -33,6 +33,19 @@ function initDb() {
       FOREIGN KEY (user_id) REFERENCES users(id),
       UNIQUE(user_id, service)
     );
+
+    CREATE TABLE IF NOT EXISTS user_uploads (
+      id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id            INTEGER NOT NULL,
+      original_filename  TEXT NOT NULL,
+      disk_filename      TEXT NOT NULL UNIQUE,
+      mime_type          TEXT,
+      size_bytes         INTEGER NOT NULL,
+      created_at         DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_user_uploads_user_id ON user_uploads(user_id);
   `);
 
   const cols = db.prepare('PRAGMA table_info(connections)').all();
