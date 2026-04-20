@@ -64,7 +64,7 @@ services:
     image: ollama/ollama:latest
     volumes:
       - ollama_data:/root/.ollama
-      - ./black-synapse-ingestion/ollama/init-models.sh:/init-models.sh
+      - ./ollama/init-models.sh:/init-models.sh
     environment:
       - OLLAMA_HOST=ollama:11434
     entrypoint: ["/bin/bash", "/init-models.sh"]
@@ -101,7 +101,7 @@ services:
       - N8N_RESTRICT_FILE_ACCESS_TO=/home/node/.n8n-files;/data/asr
     volumes:
       - n8n_data:/home/node/.n8n
-      - ./black-synapse-ingestion/ASR:/data/asr
+      - ./ASR:/data/asr
     depends_on:
       - redis
       - qdrant
@@ -129,7 +129,7 @@ services:
       - N8N_RESTRICT_FILE_ACCESS_TO=/home/node/.n8n-files;/data/asr
     volumes:
       - n8n_data:/home/node/.n8n
-      - ./black-synapse-ingestion/ASR:/data/asr
+      - ./ASR:/data/asr
     depends_on:
       - redis
 
@@ -137,7 +137,7 @@ services:
 
   asr:
     build:
-      context: ./black-synapse-ingestion
+      context: .
       dockerfile: ./ASR/Dockerfile
     ports:
       - "8002:8002"
