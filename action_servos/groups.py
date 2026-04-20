@@ -55,6 +55,7 @@ class ArmController:
         self._j0 = j0
         self._j1 = j1
         self._state = ArmState()
+        self._released: bool = False
 
     @property
     def joint0_spec(self) -> JointSpec:
@@ -81,6 +82,27 @@ class ArmController:
 
     def center(self) -> None:
         self.set_pulses(self._j0.center_us, self._j1.center_us)
+
+    def release(self) -> None:
+        """Cut PWM signal to both arm joints; servos go limp."""
+        self._pca.set_channel_full_off(self._j0.channel)
+        self._pca.set_channel_full_off(self._j1.channel)
+        self._released = True
+
+    def resume(self) -> None:
+        """Re-engage torque and restore last known position (or center if unknown)."""
+        j0 = self._state.j0 if self._state.j0 is not None else self._j0.center_us
+        j1 = self._state.j1 if self._state.j1 is not None else self._j1.center_us
+        self.set_pulses(j0, j1)
+        self._released = False
+
+    def reset(self) -> None:
+        """Wake chip, clear FULL_OFF state, and re-send last known arm position."""
+        j0 = self._state.j0 if self._state.j0 is not None else self._j0.center_us
+        j1 = self._state.j1 if self._state.j1 is not None else self._j1.center_us
+        self._pca.reset_channel(self._j0.channel, j0)
+        self._pca.reset_channel(self._j1.channel, j1)
+        self._released = False
 
     def move_ramp(
         self,
@@ -117,6 +139,7 @@ class HeadController:
         self._pan = pan
         self._tilt = tilt
         self._state = HeadState()
+        self._released: bool = False
 
     @property
     def pan_spec(self) -> Optional[JointSpec]:
@@ -150,6 +173,31 @@ class HeadController:
     def center(self) -> None:
         pan_c = self._pan.center_us if self._pan is not None else 0.0
         self.set_pulses(pan_c, self._tilt.center_us)
+
+    def release(self) -> None:
+        """Cut PWM signal to head joints; servos go limp."""
+        self._pca.set_channel_full_off(self._tilt.channel)
+        if self._pan is not None:
+            self._pca.set_channel_full_off(self._pan.channel)
+        self._released = True
+
+    def resume(self) -> None:
+        """Re-engage torque and restore last known position (or center if unknown)."""
+        tilt = self._state.tilt if self._state.tilt is not None else self._tilt.center_us
+        pan = self._state.pan if self._state.pan is not None else (
+            self._pan.center_us if self._pan is not None else 0.0
+        )
+        self.set_pulses(pan, tilt)
+        self._released = False
+
+    def reset(self) -> None:
+        """Wake chip, clear FULL_OFF state, and re-send last known head position."""
+        tilt = self._state.tilt if self._state.tilt is not None else self._tilt.center_us
+        self._pca.reset_channel(self._tilt.channel, tilt)
+        if self._pan is not None:
+            pan = self._state.pan if self._state.pan is not None else self._pan.center_us
+            self._pca.reset_channel(self._pan.channel, pan)
+        self._released = False
 
     def move_ramp(
         self,
@@ -185,6 +233,7 @@ class EarController:
         self._pca = pca
         self._spec = spec
         self._state = EarState()
+        self._released: bool = False
 
     @property
     def spec(self) -> JointSpec:
@@ -205,6 +254,23 @@ class EarController:
 
     def center(self) -> None:
         self.set_pulse(self._spec.center_us)
+
+    def release(self) -> None:
+        """Cut PWM signal to ear servo; servo goes limp."""
+        self._pca.set_channel_full_off(self._spec.channel)
+        self._released = True
+
+    def resume(self) -> None:
+        """Re-engage torque and restore last known position (or center if unknown)."""
+        pulse = self._state.pulse if self._state.pulse is not None else self._spec.center_us
+        self.set_pulse(pulse)
+        self._released = False
+
+    def reset(self) -> None:
+        """Wake chip, clear FULL_OFF state, and re-send last known ear position."""
+        pulse = self._state.pulse if self._state.pulse is not None else self._spec.center_us
+        self._pca.reset_channel(self._spec.channel, pulse)
+        self._released = False
 
     def move_ramp(
         self,
@@ -297,6 +363,24 @@ class ServoOrchestrator:
     def estop_center(self) -> None:
         """Safe pose: all joints to calibrated center (no chip sleep)."""
         self.all_center()
+
+    def release_all(self) -> None:
+        """Cut PWM to all joints; all servos go limp."""
+        self.arm.release()
+        self.head.release()
+        self.ear.release()
+
+    def resume_all(self) -> None:
+        """Re-engage torque on all joints, restoring last known positions."""
+        self.arm.resume()
+        self.head.resume()
+        self.ear.resume()
+
+    def reset_all(self) -> None:
+        """Wake chip and clear FULL_OFF state on all joints, restoring last known positions."""
+        self.arm.reset()
+        self.head.reset()
+        self.ear.reset()
 
 
 def presets_head_pose(name: str) -> Optional[Tuple[float, float]]:

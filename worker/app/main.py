@@ -19,8 +19,13 @@ from .utils import setup_logging
 from .scraper import scrape_url
 from .qr_analyzer import decode_qr_from_bytes, decode_qr_from_base64, classify_qr_content
 from .pdf_processor import extract_pdf_content
+import asyncio
 import uuid
 from datetime import datetime
+
+from action_servos import ServoOrchestrator as _ServoOrchestrator
+from action_servos.config import DEFAULT_I2C_BUS, DEFAULT_PCA9685_ADDRESS, DEFAULT_PWM_FREQUENCY_HZ
+from .arm_actions import execute_action as _execute_arm_action
 
 # Load environment variables
 load_dotenv()
@@ -47,6 +52,16 @@ app.add_middleware(
 
 # Initialize ingestion pipeline
 pipeline = IngestionPipeline()
+
+# Arm servo orchestrator — None if hardware unavailable (worker still starts cleanly)
+_servo_bus = int(os.getenv("SERVO_I2C_BUS", str(DEFAULT_I2C_BUS)))
+try:
+    _arm_orch = _ServoOrchestrator()
+    _arm_orch.open(_servo_bus, DEFAULT_PCA9685_ADDRESS, DEFAULT_PWM_FREQUENCY_HZ)
+    logger.info("Servo orchestrator opened on I2C bus %d", _servo_bus)
+except Exception as _e:
+    _arm_orch = None
+    logger.warning("Servo hardware unavailable — /arm/action will return 503: %s", _e)
 
 # Service URLs for acknowledge endpoint
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
@@ -519,6 +534,51 @@ async def consolidate_memory(
     except Exception as e:
         logger.error(f"Error eliminating chat memory: {e}")
         raise HTTPException(status_code=500, detail=f"Consolidation failed: {str(e)}")
+class ArmActionRequest(BaseModel):
+    """Request schema for LLM-driven arm control."""
+    action: str = Field(
+        ...,
+        description="Action name: extend | retract | wave | point | rest | release",
+    )
+    amount: Optional[int] = Field(
+        None,
+        ge=0,
+        le=100,
+        description="For extend/retract: percentage 0–100. Omit for named gesture actions.",
+    )
+
+
+class ArmActionResponse(BaseModel):
+    """Response schema for arm action execution."""
+    success: bool
+    action: str
+    result: str
+
+
+@app.post("/arm/action", response_model=ArmActionResponse)
+async def arm_action(request: ArmActionRequest):
+    """
+    Execute a pre-configured arm action.
+
+    Called by the LLM via n8n toolHttpRequest. The LLM selects from named
+    actions (extend, retract, wave, point, rest, release) and optionally
+    provides an amount (0–100%) for parameterized actions.
+    """
+    if _arm_orch is None:
+        raise HTTPException(status_code=503, detail="Servo hardware unavailable.")
+    try:
+        loop = asyncio.get_event_loop()
+        description = await loop.run_in_executor(
+            None, _execute_arm_action, _arm_orch, request.action, request.amount
+        )
+        return ArmActionResponse(success=True, action=request.action, result=description)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Arm action '%s' failed: %s", request.action, e)
+        raise HTTPException(status_code=500, detail=f"Arm action failed: {e}")
+
+
 class AcknowledgeRequest(BaseModel):
     """Request schema for intermediate voice acknowledgment."""
     message: str = Field(..., description="The user's message to acknowledge")
