@@ -18,6 +18,7 @@ from .pipeline import IngestionPipeline
 from .utils import setup_logging
 from .scraper import scrape_url
 from .qr_analyzer import decode_qr_from_bytes, decode_qr_from_base64, classify_qr_content
+from .pdf_processor import extract_pdf_content
 import asyncio
 import uuid
 from datetime import datetime
@@ -119,6 +120,17 @@ class QRAnalyzeResponse(BaseModel):
     qr_codes_found: int
     results: List[QRCodeResult]
     message: str
+
+
+class PDFIngestResponse(BaseModel):
+    """Response model for PDF ingestion."""
+    success: bool
+    message: str
+    doc_id: str
+    pages: int = 0
+    images_described: int = 0
+    chunks_processed: int = 0
+    error: str = None
 class ChatLogPayload(BaseModel):
     """Schema for chat log ingestion."""
     session_id: str = Field(..., description="Unique session identifier")
@@ -645,6 +657,105 @@ async def acknowledge(request: AcknowledgeRequest, background_tasks: BackgroundT
     background_tasks.add_task(_speak_acknowledgment, acknowledgment)
 
     return {"acknowledgment": acknowledgment, "status": "speaking"}
+
+
+@app.post("/ingest/pdf", response_model=PDFIngestResponse)
+async def ingest_pdf(
+    file: UploadFile = File(...),
+    title: str = Form(default=None),
+    source: str = Form(default="pdf_upload"),
+    author: str = Form(default="unknown"),
+    use_openai_vision: bool = Form(default=False),
+    background_tasks: BackgroundTasks = None,
+):
+    """
+    Ingest a PDF file, extracting both text and image content.
+
+    For each page the pipeline will:
+      1. Extract raw text via PyMuPDF
+      2. Extract embedded images and describe them using a vision model
+         - Default: moondream via Ollama (local, free)
+         - Optional: GPT-4o Vision (set use_openai_vision=true in the form)
+      3. Combine text + image descriptions into a single document
+      4. Run through the normal chunk → embed → Qdrant pipeline
+
+    Form fields:
+      file              (required) The PDF file
+      title             Document title (defaults to filename)
+      source            Source label (default: 'pdf_upload')
+      author            Author name  (default: 'unknown')
+      use_openai_vision If true, use GPT-4o Vision instead of moondream
+    """
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are accepted")
+
+    pdf_bytes = await file.read()
+    if not pdf_bytes:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+
+    doc_title = title or file.filename
+    doc_id = f"pdf_{uuid.uuid4().hex[:16]}"
+    now = datetime.utcnow().isoformat()
+
+    logger.info("Processing PDF upload: %s (%d bytes)", file.filename, len(pdf_bytes))
+
+    try:
+        openai_client = pipeline.openai_client if use_openai_vision else None
+        combined_text = await extract_pdf_content(
+            pdf_bytes,
+            openai_client=openai_client,
+            use_openai_vision=use_openai_vision,
+        )
+    except RuntimeError as exc:
+        # PyMuPDF not installed
+        raise HTTPException(status_code=500, detail=str(exc))
+    except Exception as exc:
+        logger.error("PDF extraction failed for %s: %s", file.filename, exc)
+        raise HTTPException(status_code=500, detail=f"PDF extraction failed: {exc}")
+
+    if not combined_text.strip():
+        raise HTTPException(
+            status_code=422,
+            detail="No extractable content found in the PDF (it may be a scanned image without OCR)",
+        )
+
+    # Count how many image description blocks were produced
+    images_described = combined_text.count("[Page ") - combined_text.count("[Page ") + \
+                       combined_text.count("Image") if "Image" in combined_text else 0
+    images_described = combined_text.count("Image Description]")
+
+    document = DocumentPayload(
+        doc_id=doc_id,
+        source=source,
+        title=doc_title,
+        uri=f"pdf://{file.filename}",
+        text=combined_text,
+        author=author,
+        created_at=now,
+        updated_at=now,
+    )
+
+    result = await pipeline.process_document(document)
+
+    if result["success"]:
+        logger.info(
+            "PDF ingested successfully: %s → %d chunks",
+            file.filename, result["chunks_processed"],
+        )
+        return PDFIngestResponse(
+            success=True,
+            message="PDF ingested successfully",
+            doc_id=doc_id,
+            images_described=images_described,
+            chunks_processed=result["chunks_processed"],
+        )
+    else:
+        return PDFIngestResponse(
+            success=False,
+            message="PDF ingestion failed",
+            doc_id=doc_id,
+            error=result.get("error"),
+        )
 
 
 if __name__ == "__main__":

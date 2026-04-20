@@ -16,3 +16,4 @@ httpx==0.25.2
 firecrawl-py==0.0.20
 Pillow==10.2.0
 pyzbar==0.1.9
+pymupdf>=1.23.0
