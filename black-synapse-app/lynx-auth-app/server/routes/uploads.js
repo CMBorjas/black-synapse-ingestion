@@ -3,8 +3,12 @@ const fs = require('fs');
 const crypto = require('crypto');
 const express = require('express');
 const multer = require('multer');
+const FormData = require('form-data');
+const axios = require('axios');
 const requireUploadAccess = require('../middleware/requireUploadAccess');
 const { getDb } = require('../services/db');
+
+const WORKER_URL = process.env.WORKER_URL || 'http://localhost:8000';
 
 const router = express.Router();
 
@@ -32,8 +36,17 @@ const storage = multer.diskStorage({
   },
 });
 
+function pdfOnly(_req, file, cb) {
+  if (file.mimetype === 'application/pdf' || file.originalname.toLowerCase().endsWith('.pdf')) {
+    cb(null, true);
+  } else {
+    cb(new multer.MulterError('LIMIT_UNEXPECTED_FILE', 'Only PDF files are accepted'));
+  }
+}
+
 const upload = multer({
   storage,
+  fileFilter: pdfOnly,
   limits: { fileSize: maxBytes(), files: MAX_FILES_PER_REQUEST },
 });
 
@@ -96,6 +109,9 @@ router.post('/', requireUploadAccess, (req, res, next) => {
         if (err.code === 'LIMIT_FILE_COUNT') {
           return res.status(400).json({ error: `At most ${MAX_FILES_PER_REQUEST} files per upload` });
         }
+        if (err.code === 'LIMIT_UNEXPECTED_FILE') {
+          return res.status(415).json({ error: 'Only PDF files are accepted' });
+        }
         return res.status(400).json({ error: err.message });
       }
       return next(err);
@@ -129,6 +145,7 @@ router.post('/', requireUploadAccess, (req, res, next) => {
         originalFilename: f.originalname || 'unnamed',
         mimeType: f.mimetype || null,
         sizeBytes: f.size,
+        diskFilename: f.filename,
       });
     }
   });
@@ -139,18 +156,28 @@ router.post('/', requireUploadAccess, (req, res, next) => {
     for (const f of files) {
       const abs = diskPath(f.filename);
       if (abs && fs.existsSync(abs)) {
-        try {
-          fs.unlinkSync(abs);
-        } catch (_) {
-          /* ignore */
-        }
+        try { fs.unlinkSync(abs); } catch (_) { /* ignore */ }
       }
     }
     console.error('upload insert failed:', e);
     return res.status(500).json({ error: 'Failed to save upload metadata' });
   }
 
-  res.status(201).json({ files: created });
+  // Forward each PDF to the ingestion worker in the background
+  for (const f of created) {
+    const abs = diskPath(f.diskFilename);
+    if (!abs) continue;
+    const form = new FormData();
+    form.append('file', fs.createReadStream(abs), {
+      filename: f.originalFilename,
+      contentType: 'application/pdf',
+    });
+    axios.post(`${WORKER_URL}/ingest/pdf`, form, { headers: form.getHeaders() })
+      .then((r) => console.log(`[ingestion] ${f.originalFilename}:`, r.data.message || r.data))
+      .catch((err) => console.error(`[ingestion] failed for ${f.originalFilename}:`, err.message));
+  }
+
+  res.status(201).json({ files: created.map(({ diskFilename: _d, ...rest }) => rest) });
 });
 
 // ── DELETE /api/uploads/:id ──────────────────────────────────────────────────
