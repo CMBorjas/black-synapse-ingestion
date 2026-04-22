@@ -6,11 +6,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Black Synapse** is the AI data ingestion and perception system for the Desky/AtlasAI robot. It ingests data from multiple sources (Notion, Gmail, Drive, Slack, cameras, QR codes) into a Qdrant vector database to power RAG capabilities for the robot's LLM.
 
-## Running the Stack
+Start all services (Docker + Python):
+```bash
+./start.sh
+```
 
-Start all Docker services (Qdrant, Ollama, n8n, ASR, TTS, DeepFace):
+Stop all services and free up ports:
+```bash
+./stop.sh
+```
+
+Manage as a systemd service:
+```bash
+sudo systemctl [start|stop|status|restart] atlasai
+```
+
+Manual Docker commands:
 ```bash
 docker-compose up -d
+docker-compose down
 ```
 
 The worker (FastAPI) and postgres are **commented out** in `docker-compose.yml` and must be run manually:

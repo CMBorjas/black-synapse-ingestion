@@ -7,6 +7,11 @@ cd "$SCRIPT_DIR"
 
 echo "Starting AtlasAI System..."
 
+# Ensure a clean slate by stopping any running services
+if [ -f "./stop.sh" ]; then
+    bash ./stop.sh
+fi
+
 # Check if .env file exists
 if [ -d .env ]; then
     echo "ERROR: .env is a directory, not a file. Remove it with: rm -rf .env"
@@ -136,4 +141,4 @@ echo "  TTS:         http://localhost:8001"
 echo ""
 echo "Logs: $SCRIPT_DIR/logs/"
 echo "To view Docker logs: $DOCKER_COMPOSE_CMD logs -f"
-echo "To stop:             $DOCKER_COMPOSE_CMD down"
+echo "To stop:             ./stop.sh"

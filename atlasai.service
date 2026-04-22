@@ -11,7 +11,7 @@ User=ATLASAI_USER
 Group=ATLASAI_USER
 WorkingDirectory=ATLASAI_DIR
 ExecStart=/bin/bash ATLASAI_DIR/start.sh
-ExecStop=/usr/bin/docker-compose down
+ExecStop=/bin/bash ATLASAI_DIR/stop.sh
 
 # Give Docker services and Python processes time to fully start
 TimeoutStartSec=120
