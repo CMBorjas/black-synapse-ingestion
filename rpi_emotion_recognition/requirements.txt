@@ -1,0 +1,10 @@
+# Unified Requirements for RPi Emotion System
+pygame
+fastapi
+uvicorn
+torch
+librosa
+transformers
+numpy
+soundfile
+smbus2>=0.4.0
