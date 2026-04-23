@@ -758,6 +758,16 @@ async def ingest_pdf(
         )
 
 
+@app.post("/face/emotion")
+async def set_face_emotion(emotion: str):
+    """
+    Set the facial expression on the Raspberry Pi.
+    """
+    from .face_controller import face_controller
+    face_controller.set_emotion(emotion)
+    return {"status": "success", "emotion": emotion}
+
+
 if __name__ == "__main__":
     import uvicorn
     

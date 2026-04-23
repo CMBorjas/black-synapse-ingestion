@@ -5,6 +5,7 @@ import logging
 import uvicorn
 import wave
 import whisper
+import os
 import numpy as np  # make sure: pip install numpy
 
 app = FastAPI()
@@ -63,7 +64,21 @@ async def transcribe(request: Request):
         logging.error(f"Transcription error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Whisper transcription failed: {e}")
 
-    return {"text": text}
+    # Optional: Analyze emotion
+    emotion = "neutral"
+    try:
+        import httpx
+        EMOTION_SERVICE_URL = os.getenv("EMOTION_SERVICE_URL", "http://emotion-recognition:8003/analyze")
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            # Send the same WAV data to the emotion service
+            resp = await client.post(EMOTION_SERVICE_URL, content=data)
+            if resp.status_code == 200:
+                emotion_result = resp.json()
+                emotion = emotion_result.get("emotion", "neutral")
+    except Exception as e:
+        logging.warning(f"Emotion recognition failed: {e}")
+
+    return {"text": text, "emotion": emotion}
 
 
 if __name__ == "__main__":

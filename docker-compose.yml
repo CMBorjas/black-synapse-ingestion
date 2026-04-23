@@ -147,6 +147,18 @@ services:
       - PYTHONUNBUFFERED=1
     restart: unless-stopped
 
+  # ── Emotion Recognition (audio-based) ───────────────────────────────────────
+
+  emotion-recognition:
+    build:
+      context: ./emotion_recognition
+      dockerfile: Dockerfile
+    ports:
+      - "8003:8003"
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+
   # ── Kokoro TTS ───────────────────────────────────────────────────────────────
 
   kokoro-tts:
