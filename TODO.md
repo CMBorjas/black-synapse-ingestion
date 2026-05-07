@@ -1,6 +1,6 @@
 # TODO
 Verify the following:
-## Must
+## End to End Pipeline
 - [X] AST with wake word
 - [X] LLM with all tools
 - [X] Perception System
@@ -17,19 +17,19 @@ Verify the following:
     - [ ] IK Pick and Place
 - [ ] Embodiment
     - [ ] Screen working with workflow configurations
-    - [ ] Motors
-        -[ ] Looks around when idle
-        -[ ] Follows gaze
+    - [-] Motors
+    - [-] Looks around when idle
+    - [-] Follows gaze
 -[ ] Peripherals
     -[ ] Camera
     -[ ] Microphone
-    -[ ] Speaker
+    -[ ] Bluetooth Speaker
 
 
 ## 1700 - 1900
 - [ ] Poster setup
 - [ ] Figure out workspace
-- []Jetson connected to internet
+- [ ] Jetson connected to internet
     - [ ] SSH
     - [ ] VPN
 - [ ] Demo run
