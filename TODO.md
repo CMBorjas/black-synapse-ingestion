@@ -43,3 +43,12 @@ Verify the following:
 
 ## Elyas
 - [] Robotic Arm
+
+## 1900 
+- [] Cutoff for the project
+- [] Setup for Demo
+    - [] Lighting
+    - [] Noise reduction
+    - [] Computer setup
+- [] Poster
+
