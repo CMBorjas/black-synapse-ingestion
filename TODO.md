@@ -44,7 +44,7 @@ Verify the following:
 ## Elyas
 - [] Robotic Arm
 
-## 1900 
+## 1900 hrs. Deadline
 - [] Cutoff for the project
 - [] Setup for Demo
     - [] Lighting
