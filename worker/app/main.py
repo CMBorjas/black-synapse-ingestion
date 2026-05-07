@@ -23,9 +23,15 @@ import asyncio
 import uuid
 from datetime import datetime
 
-from action_servos import ServoOrchestrator as _ServoOrchestrator
-from action_servos.config import DEFAULT_I2C_BUS, DEFAULT_PCA9685_ADDRESS, DEFAULT_PWM_FREQUENCY_HZ
-from .arm_actions import execute_action as _execute_arm_action
+try:
+    from action_servos import ServoOrchestrator as _ServoOrchestrator
+    from action_servos.config import DEFAULT_I2C_BUS, DEFAULT_PCA9685_ADDRESS, DEFAULT_PWM_FREQUENCY_HZ
+    from .arm_actions import execute_action as _execute_arm_action
+    _SERVOS_AVAILABLE = True
+except ModuleNotFoundError:
+    _ServoOrchestrator = None  # type: ignore[assignment,misc]
+    _execute_arm_action = None  # type: ignore[assignment]
+    _SERVOS_AVAILABLE = False
 
 # Load environment variables
 load_dotenv()
@@ -54,14 +60,18 @@ app.add_middleware(
 pipeline = IngestionPipeline()
 
 # Arm servo orchestrator — None if hardware unavailable (worker still starts cleanly)
-_servo_bus = int(os.getenv("SERVO_I2C_BUS", str(DEFAULT_I2C_BUS)))
-try:
-    _arm_orch = _ServoOrchestrator()
-    _arm_orch.open(_servo_bus, DEFAULT_PCA9685_ADDRESS, DEFAULT_PWM_FREQUENCY_HZ)
-    logger.info("Servo orchestrator opened on I2C bus %d", _servo_bus)
-except Exception as _e:
+if _SERVOS_AVAILABLE:
+    _servo_bus = int(os.getenv("SERVO_I2C_BUS", str(DEFAULT_I2C_BUS)))
+    try:
+        _arm_orch = _ServoOrchestrator()
+        _arm_orch.open(_servo_bus, DEFAULT_PCA9685_ADDRESS, DEFAULT_PWM_FREQUENCY_HZ)
+        logger.info("Servo orchestrator opened on I2C bus %d", _servo_bus)
+    except Exception as _e:
+        _arm_orch = None
+        logger.warning("Servo hardware unavailable — /arm/action will return 503: %s", _e)
+else:
     _arm_orch = None
-    logger.warning("Servo hardware unavailable — /arm/action will return 503: %s", _e)
+    logger.warning("action_servos module not found — /arm/action will return 503")
 
 # Service URLs for acknowledge endpoint
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
@@ -156,18 +166,38 @@ async def root():
 async def health_check():
     """Detailed health check including database connections."""
     try:
-        # Check database connections
         postgres_healthy = await pipeline.check_postgres_connection()
-        qdrant_healthy = await pipeline.check_qdrant_connection()
-        
+
         return {
-            "status": "healthy" if postgres_healthy and qdrant_healthy else "unhealthy",
+            "status": "healthy" if postgres_healthy else "unhealthy",
             "postgres": "connected" if postgres_healthy else "disconnected",
-            "qdrant": "connected" if qdrant_healthy else "disconnected"
         }
     except Exception as e:
         logger.error(f"Health check failed: {e}")
         raise HTTPException(status_code=500, detail=f"Health check failed: {str(e)}")
+
+@app.get("/debug/ingest")
+async def debug_ingest_status(limit: int = 20):
+    """
+    Recent ingestion activity and overall chunk/document counts.
+
+    Query params:
+      limit  Number of recent log entries to return (default 20)
+    """
+    return await pipeline.get_ingest_status(limit=limit)
+
+
+@app.get("/debug/chunks/{doc_id}")
+async def debug_document_chunks(doc_id: str):
+    """
+    Show every stored chunk for a document: index, character count, text preview,
+    and whether an embedding was saved.
+    """
+    result = await pipeline.get_document_chunks(doc_id)
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
+
 
 @app.post("/ingest", response_model=IngestionResponse)
 async def ingest_document(
@@ -756,16 +786,6 @@ async def ingest_pdf(
             doc_id=doc_id,
             error=result.get("error"),
         )
-
-
-@app.post("/face/emotion")
-async def set_face_emotion(emotion: str):
-    """
-    Set the facial expression on the Raspberry Pi.
-    """
-    from .face_controller import face_controller
-    face_controller.set_emotion(emotion)
-    return {"status": "success", "emotion": emotion}
 
 
 if __name__ == "__main__":
