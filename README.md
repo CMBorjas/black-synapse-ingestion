@@ -6,14 +6,14 @@ AI data ingestion and perception system for the **Desky / AtlasAI** robot. Inges
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                     Docker Services                      │
+│                     Docker Services                     │
 │  Qdrant · Ollama · n8n · n8n-worker · Redis             │
-│  ASR API · Kokoro TTS · DeepFace                        │
+│  ASR API · Kokoro TTS · DeepFace  · PostgresSQL         │
 └─────────────────────────────────────────────────────────┘
          ▲                          ▲
          │ POST /ingest             │ face recognition
 ┌────────┴────────┐        ┌────────┴────────┐
-│  Worker (FastAPI)│        │  Perception     │
+│ Worker (FastAPI)│        │  Perception     │
 │  port 8000      │        │  (cameras)      │
 └─────────────────┘        └─────────────────┘
          ▲
@@ -36,6 +36,7 @@ AI data ingestion and perception system for the **Desky / AtlasAI** robot. Inges
 | Kokoro TTS    | 8880  |
 | DeepFace      | 5000  |
 | Redis         | 6379  |
+| PostgresSQL   | 5432  |
 
 ## Quick Start
 
@@ -45,9 +46,9 @@ AI data ingestion and perception system for the **Desky / AtlasAI** robot. Inges
 docker-compose up -d
 ```
 
-This starts: Qdrant, Ollama (+ model init), n8n, n8n-worker, Redis, ASR API, Kokoro TTS, DeepFace.
+This starts: Qdrant, Ollama (+ model init), n8n, n8n-worker, Redis, ASR API, Kokoro TTS, DeepFace, PostgresSQL.
 
-> **Note:** Postgres and the Worker are commented out in `docker-compose.yml` and must be run manually (see below).
+> **Note:** The Worker are commented out in `docker-compose.yml` and must be run manually (see below).
 
 ### 2. Start the ingestion worker (manually)
 
