@@ -18,7 +18,7 @@ Verify the following:
 - [ ] Embodiment
     - [ ] Screen working with workflow configurations
     - [ ] Motors
-        -[ ] Looks around whne idle
+        -[ ] Looks around when idle
         -[ ] Follows gaze
 -[ ] Peripherals
     -[ ] Camera
@@ -36,3 +36,10 @@ Verify the following:
     - [] lighting
     - [] Room noise for microphone
 
+## Christian & Ridiwan
+- [] End to end pipeline
+- [] Embodiment
+- [] Peripherals
+
+## Elyas
+- [] Robotic Arm
