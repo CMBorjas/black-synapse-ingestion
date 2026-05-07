@@ -24,3 +24,15 @@ Verify the following:
     -[ ] Camera
     -[ ] Microphone
     -[ ] Speaker
+
+
+## 1700 - 1900
+- [ ] Poster setup
+- [ ] Figure out workspace
+- []Jetson connected to internet
+    - [ ] SSH
+    - [ ] VPN
+- [ ] Demo run
+    - [] lighting
+    - [] Room noise for microphone
+
