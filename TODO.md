@@ -1,12 +1,13 @@
 # TODO
 Verify the following:
-- [ ] AST with wake word
-- [ ] LLM with all tools
-- [ ] Perception System
-    - [ ] Able to register new user
-    - [ ] Accurate detections (one person? Multiple people?, no one?)
-- [ ] TTS
-    - [ ] Natural sounding TTS Stream
+## Must
+- [X] AST with wake word
+- [X] LLM with all tools
+- [X] Perception System
+    - [X] Able to register new user
+    - [] Accurate detections (one person? Multiple people?, no one?)
+- [X] TTS
+    - [X] Natural sounding TTS Stream
 - [ ] Robotic Arm
     - [ ] Preconfigured movements
     - [ ] Wave hello
@@ -23,6 +24,3 @@ Verify the following:
     -[ ] Camera
     -[ ] Microphone
     -[ ] Speaker
- 
-    
-    
