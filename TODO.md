@@ -8,7 +8,7 @@ Verify the following:
     - [x] Accurate detections (one person? Multiple people?, no one?)
 - [X] TTS
     - [X] Natural sounding TTS Stream
-- [ ] Robotic Arm
+- [ ] Robotic ArmTODO updated @ 1852 hrs.
     - [ ] Preconfigured movements
     - [ ] Wave hello
     - [ ] Dance
@@ -25,7 +25,6 @@ Verify the following:
     -[x] Stand Microphone
     -[x] Bluetooth Speaker
 
-
 ## 1700 - 1900
 - [x] Poster setup
 - [x] Figure out workspace
@@ -39,7 +38,6 @@ Verify the following:
 ## Christian & Ridiwan
 - [] End to end pipeline
 - [] Embodiment
-- [] Peripherals
 
 ## Elyas
 - [] Robotic Arm
